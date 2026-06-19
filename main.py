@@ -22,6 +22,16 @@ def keep_alive():
 TOKEN = os.environ['TOKEN']
 CHANNEL_NAME = 'заявки-бот'
 
+# Роли, которые могут видеть тикеты
+ALLOWED_ROLES = [
+    1514599381230293094,
+    1514614732089331772,
+    1514601261612400781,
+    1514710792677884125,
+    1514613884189802597,
+    1514615286551019610,
+]
+
 class MyClient(discord.Client):
     async def on_ready(self):
         print(f'✅ Бот {self.user} запущен!')
@@ -48,19 +58,28 @@ class MyClient(discord.Client):
 
             mention = user.mention if user else discord_nick or 'Не указан'
 
+            # Отправляем сообщение с тегом
             await new_channel.send(f'📩 **Новая заявка от {mention}!**')
             await new_channel.send(content)
 
+            # ===== НАСТРОЙКА ПРАВ ДОСТУПА =====
+            # 1. Закрываем доступ для @everyone
+            await new_channel.set_permissions(guild.default_role, read_messages=False)
+
+            # 2. Даём доступ пользователю (если нашли)
             if user:
                 await new_channel.set_permissions(user, read_messages=True, send_messages=True)
-            
+
+            # 3. Даём доступ ролям из списка ALLOWED_ROLES
+            for role_id in ALLOWED_ROLES:
+                role = guild.get_role(role_id)
+                if role:
+                    await new_channel.set_permissions(role, read_messages=True, send_messages=True)
+
+            # 4. Если есть роль "Admin" — тоже даём доступ
             admin_role = discord.utils.get(guild.roles, name='Admin')
             if admin_role:
                 await new_channel.set_permissions(admin_role, read_messages=True, send_messages=True)
-            
-            await new_channel.set_permissions(guild.default_role, read_messages=False)
 
-# ===== ЗАПУСК =====
-keep_alive()  # Запускаем веб-сервер
 client = MyClient(intents=discord.Intents.all())
 client.run(TOKEN)
