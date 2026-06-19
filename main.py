@@ -21,7 +21,7 @@ TOKEN = os.environ['TOKEN']
 CHANNEL_NAME = 'заявки-бот'
 
 # ===== КАТЕГОРИЯ ПО ИМЕНИ =====
-CATEGORY_NAME = 'ticket'  # Бот найдёт категорию по этому имени
+CATEGORY_NAME = 'ticket'
 
 ALLOWED_ROLES = [
     1514599381230293094,
@@ -63,11 +63,11 @@ class MyClient(discord.Client):
             # ===== ИЩЕМ КАТЕГОРИЮ ПО ИМЕНИ =====
             category = discord.utils.get(guild.categories, name=CATEGORY_NAME)
             
-            # Если категория не найдена — создаём без категории (но должно быть)
+            # Если категория не найдена — создаём её
             if category is None:
-                # Создаём категорию, если её нет
                 category = await guild.create_category(CATEGORY_NAME)
 
+            # ===== СОЗДАЁМ КАНАЛ ТОЛЬКО В КАТЕГОРИИ =====
             new_channel = await guild.create_text_channel(
                 f'тикет-{message.author.name}',
                 category=category
@@ -78,6 +78,7 @@ class MyClient(discord.Client):
             await new_channel.send(f'📩 **Новая заявка от {mention}!**')
             await new_channel.send(content)
 
+            # ===== НАСТРОЙКА ПРАВ =====
             await new_channel.set_permissions(guild.default_role, read_messages=False)
 
             if user:
