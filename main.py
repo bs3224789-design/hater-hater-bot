@@ -20,7 +20,7 @@ def keep_alive():
 TOKEN = os.environ['TOKEN']
 CHANNEL_NAME = 'заявки-бот'
 
-# ===== ID КАТЕГОРИИ =====
+# ===== ТОЛЬКО ЭТА КАТЕГОРИЯ =====
 CATEGORY_ID = 1514619416548212777
 
 ALLOWED_ROLES = [
@@ -59,9 +59,13 @@ class MyClient(discord.Client):
                         break
 
             guild = message.guild
+            category = guild.get_channel(CATEGORY_ID)
             
-            # ===== СОЗДАЁМ КАНАЛ В КАТЕГОРИИ =====
-            category = discord.Object(id=CATEGORY_ID)
+            # Если категория не найдена — создаём в ней
+            if category is None:
+                # Если категория не существует, используем ID напрямую
+                category = discord.Object(id=CATEGORY_ID)
+
             new_channel = await guild.create_text_channel(
                 f'тикет-{message.author.name}',
                 category=category
