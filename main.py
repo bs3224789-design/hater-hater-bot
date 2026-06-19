@@ -1,7 +1,24 @@
 import discord
 import os
 import re
+from flask import Flask
+from threading import Thread
 
+# ===== ВЕБ-СЕРВЕР ДЛЯ UPTIMEROBOT =====
+app = Flask('')
+
+@app.route('/')
+def home():
+    return "Бот работает!"
+
+def run():
+    app.run(host='0.0.0.0', port=8080)
+
+def keep_alive():
+    t = Thread(target=run)
+    t.start()
+
+# ===== БОТ =====
 TOKEN = os.environ['TOKEN']
 CHANNEL_NAME = 'заявки-бот'
 
@@ -20,7 +37,6 @@ class MyClient(discord.Client):
             user = None
             if discord_nick:
                 for member in message.guild.members:
-                    # Проверяем разные варианты: имя, имя#тег, частичное совпадение
                     if (member.name.lower() == discord_nick.lower() or 
                         str(member).lower() == discord_nick.lower() or
                         discord_nick.lower() in member.name.lower()):
@@ -44,5 +60,7 @@ class MyClient(discord.Client):
             
             await new_channel.set_permissions(guild.default_role, read_messages=False)
 
+# ===== ЗАПУСК =====
+keep_alive()  # Запускаем веб-сервер
 client = MyClient(intents=discord.Intents.all())
 client.run(TOKEN)
