@@ -63,11 +63,17 @@ class MyClient(discord.Client):
             # ===== ИЩЕМ КАТЕГОРИЮ ПО ИМЕНИ =====
             category = discord.utils.get(guild.categories, name=CATEGORY_NAME)
             
-            # Если категория не найдена — создаём её
+            # Если категория не найдена — создаём её и сразу настраиваем права
             if category is None:
                 category = await guild.create_category(CATEGORY_NAME)
+                # Настраиваем права категории
+                await category.set_permissions(guild.default_role, read_messages=False)
+                for role_id in ALLOWED_ROLES:
+                    role = guild.get_role(role_id)
+                    if role:
+                        await category.set_permissions(role, read_messages=True, connect=True)
 
-            # ===== СОЗДАЁМ КАНАЛ ТОЛЬКО В КАТЕГОРИИ =====
+            # ===== СОЗДАЁМ КАНАЛ В КАТЕГОРИИ =====
             new_channel = await guild.create_text_channel(
                 f'тикет-{message.author.name}',
                 category=category
@@ -78,7 +84,7 @@ class MyClient(discord.Client):
             await new_channel.send(f'📩 **Новая заявка от {mention}!**')
             await new_channel.send(content)
 
-            # ===== НАСТРОЙКА ПРАВ =====
+            # ===== НАСТРОЙКА ПРАВ КАНАЛА =====
             await new_channel.set_permissions(guild.default_role, read_messages=False)
 
             if user:
