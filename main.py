@@ -18,15 +18,13 @@ def keep_alive():
     t = Thread(target=run)
     t.start()
 
-# ===== ВСТАВЬ СВОЙ ТОКЕН СЮДА (БЕЗ КАВЫЧЕК И ПРОБЕЛОВ) =====
-TOKEN = ''
+TOKEN = os.environ.get('TOKEN')
+if not TOKEN:
+    print("❌ Токен не найден! Добавь переменную TOKEN на Railway.")
+    exit(1)
 
 CHANNEL_NAME = 'заявки-бот'
-
-# ===== КАТЕГОРИЯ ПО ИМЕНИ =====
 CATEGORY_NAME = 'ticket'
-
-# ===== ID КАНАЛА ДЛЯ КНОПКИ =====
 APPLY_CHANNEL_ID = 1514619992430346240
 
 ALLOWED_ROLES = [
@@ -40,12 +38,54 @@ ALLOWED_ROLES = [
 
 processed_messages = set()
 
+class LinkButtonView(View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(label="🔗 Сгенерировать ссылку", style=discord.ButtonStyle.primary, custom_id="generate_link")
+    async def generate_link(self, interaction: discord.Interaction, button: discord.ui.Button):
+        user_name = interaction.user.name
+        user_discriminator = interaction.user.discriminator
+        user_tag = f"{user_name}#{user_discriminator}" if user_discriminator != '0' else user_name
+        
+        link = f"https://hater-tickets.netlify.app/?user={user_tag}"
+        
+        embed = discord.Embed(
+            title="🔗 Твоя ссылка для заявки",
+            description=(
+                f"Перейди по ссылке, чтобы заполнить заявку:\n\n"
+                f"{link}\n\n"
+                "⚠️ **Важно:** Ссылка привязана к твоему Discord нику. Не передавай её другим."
+            ),
+            color=0x5865F2
+        )
+        embed.set_footer(text="Семья Хейтер | GTA 5 RP")
+        
+        try:
+            await interaction.user.send(embed=embed)
+            await interaction.response.send_message(
+                "✅ Ссылка отправлена тебе в **личные сообщения**!",
+                ephemeral=True
+            )
+        except discord.Forbidden:
+            await interaction.response.send_message(
+                embed=embed,
+                ephemeral=True
+            )
+        except Exception as e:
+            await interaction.response.send_message(
+                "❌ Произошла ошибка. Попробуй позже.",
+                ephemeral=True
+            )
+            print(f'❌ Ошибка: {e}')
+
 class MyClient(discord.Client):
     async def on_ready(self):
         print(f'✅ Бот {self.user} запущен!')
         
         channel = self.get_channel(APPLY_CHANNEL_ID)
         if channel:
+            # Проверяем, есть ли уже сообщение с кнопкой
             async for message in channel.history(limit=10):
                 if message.author == self.user and message.components:
                     return
@@ -60,58 +100,11 @@ class MyClient(discord.Client):
             )
             embed.set_footer(text="Семья Хейтер | GTA 5 RP")
             
-            view = View()
-            view.add_item(Button(
-                label="🔗 Сгенерировать ссылку",
-                style=discord.ButtonStyle.primary,
-                custom_id="generate_link"
-            ))
-            
+            view = LinkButtonView()
             await channel.send(embed=embed, view=view)
             print(f'✅ Сообщение с кнопкой отправлено в канал {channel.name}')
         else:
             print(f'❌ Канал с ID {APPLY_CHANNEL_ID} не найден!')
-
-    async def on_interaction(self, interaction: discord.Interaction):
-        if interaction.type == discord.InteractionType.component:
-            if interaction.data.get("custom_id") == "generate_link":
-                user_name = interaction.user.name
-                user_discriminator = interaction.user.discriminator
-                if user_discriminator != '0':
-                    user_tag = f"{user_name}#{user_discriminator}"
-                else:
-                    user_tag = user_name
-                
-                link = f"https://hater-tickets.netlify.app/?user={user_tag}"
-                
-                embed = discord.Embed(
-                    title="🔗 Твоя ссылка для заявки",
-                    description=(
-                        f"Перейди по ссылке, чтобы заполнить заявку:\n\n"
-                        f"{link}\n\n"
-                        "⚠️ **Важно:** Ссылка привязана к твоему Discord нику. Не передавай её другим."
-                    ),
-                    color=0x5865F2
-                )
-                embed.set_footer(text="Семья Хейтер | GTA 5 RP")
-                
-                try:
-                    await interaction.user.send(embed=embed)
-                    await interaction.response.send_message(
-                        "✅ Ссылка отправлена тебе в **личные сообщения**!",
-                        ephemeral=True
-                    )
-                except discord.Forbidden:
-                    await interaction.response.send_message(
-                        embed=embed,
-                        ephemeral=True
-                    )
-                except Exception as e:
-                    await interaction.response.send_message(
-                        "❌ Произошла ошибка. Попробуй позже.",
-                        ephemeral=True
-                    )
-                    print(f'❌ Ошибка: {e}')
 
     async def on_message(self, message):
         if message.author == self.user:
