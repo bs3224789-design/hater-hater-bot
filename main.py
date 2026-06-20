@@ -76,7 +76,7 @@ class MyClient(discord.Client):
         if interaction.type == discord.InteractionType.component:
             if interaction.data.get("custom_id") == "generate_link":
                 user_id = interaction.user.id
-                link = f"https://hatertickets.vercel.app/?user={user_id}"
+                link = f"https://hater-tickets.netlify.app/?user={user_id}"
                 
                 embed = discord.Embed(
                     title="🔗 Твоя ссылка для заявки",
