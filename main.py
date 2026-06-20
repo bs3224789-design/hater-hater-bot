@@ -42,13 +42,12 @@ class MyClient(discord.Client):
     async def on_ready(self):
         print(f'✅ Бот {self.user} запущен!')
         
-        # ===== ОТПРАВЛЯЕМ СООБЩЕНИЕ С КНОПКОЙ В КАНАЛ =====
+        # Отправляем сообщение с кнопкой в канал
         channel = self.get_channel(APPLY_CHANNEL_ID)
         if channel:
-            # Проверяем, есть ли уже такое сообщение (чтобы не дублировать)
             async for message in channel.history(limit=10):
                 if message.author == self.user and message.components:
-                    return  # Если уже есть — выходим
+                    return
             
             embed = discord.Embed(
                 title="📩 Подать заявку в семью Хейтер",
@@ -116,17 +115,29 @@ class MyClient(discord.Client):
         if message.channel.name == CHANNEL_NAME:
             processed_messages.add(message.id)
             content = message.content
-            discord_match = re.search(r'Discord: (.+)', content)
-            discord_nick = discord_match.group(1).strip() if discord_match else None
+
+            # ===== ИЩЕМ discord_id В ЗАЯВКЕ =====
+            discord_id_match = re.search(r'discord_id: (.+)', content, re.IGNORECASE)
+            discord_id = discord_id_match.group(1).strip() if discord_id_match else None
+
+            # Если discord_id не найден — ищем старый формат (Discord: ...)
+            if not discord_id:
+                discord_match = re.search(r'Discord: (.+)', content)
+                discord_id = discord_match.group(1).strip() if discord_match else None
 
             user = None
-            if discord_nick:
-                for member in message.guild.members:
-                    if (member.name.lower() == discord_nick.lower() or 
-                        str(member).lower() == discord_nick.lower() or
-                        discord_nick.lower() in member.name.lower()):
-                        user = member
-                        break
+            if discord_id:
+                # Пробуем найти пользователя по ID (если это число)
+                if discord_id.isdigit():
+                    user = message.guild.get_member(int(discord_id))
+                # Если не число — ищем по имени
+                if not user:
+                    for member in message.guild.members:
+                        if (member.name.lower() == discord_id.lower() or 
+                            str(member).lower() == discord_id.lower() or
+                            discord_id.lower() in member.name.lower()):
+                            user = member
+                            break
 
             guild = message.guild
             
@@ -145,7 +156,7 @@ class MyClient(discord.Client):
                 category=category
             )
 
-            mention = user.mention if user else discord_nick or 'Не указан'
+            mention = user.mention if user else discord_id or 'Не указан'
 
             await new_channel.send(f'📩 **Новая заявка от {mention}!**')
             await new_channel.send(content)
