@@ -85,7 +85,6 @@ class MyClient(discord.Client):
         
         channel = self.get_channel(APPLY_CHANNEL_ID)
         if channel:
-            # Проверяем, есть ли уже сообщение с кнопкой
             async for message in channel.history(limit=10):
                 if message.author == self.user and message.components:
                     return
@@ -115,16 +114,19 @@ class MyClient(discord.Client):
             processed_messages.add(message.id)
             content = message.content
 
-            nickname_match = re.search(r'Игровой ник: (.+)', content)
-            discord_username = nickname_match.group(1).strip() if nickname_match else None
+            # ===== ИЩЕМ ПОЛЕ "Discord ID" =====
+            discord_id_match = re.search(r'Discord ID.*: (.+)', content, re.IGNORECASE)
+            discord_username = discord_id_match.group(1).strip() if discord_id_match else None
 
+            # Если не нашли — ищем "Discord:"
             if not discord_username:
                 discord_match = re.search(r'Discord: (.+)', content)
                 discord_username = discord_match.group(1).strip() if discord_match else None
 
+            # Если всё ещё пусто — ищем "Игровой ник"
             if not discord_username:
-                discord_id_match = re.search(r'discord_id: (.+)', content, re.IGNORECASE)
-                discord_username = discord_id_match.group(1).strip() if discord_id_match else None
+                nickname_match = re.search(r'Игровой ник: (.+)', content)
+                discord_username = nickname_match.group(1).strip() if nickname_match else None
 
             user = None
             if discord_username:
