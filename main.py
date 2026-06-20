@@ -18,6 +18,7 @@ def keep_alive():
     t = Thread(target=run)
     t.start()
 
+# ===== ТОКЕН БЕРЁТСЯ ИЗ ПЕРЕМЕННЫХ ОКРУЖЕНИЯ =====
 TOKEN = os.environ.get('TOKEN')
 if not TOKEN:
     print("❌ Токен не найден! Добавь переменную TOKEN на Railway.")
@@ -46,7 +47,10 @@ class LinkButtonView(View):
     async def generate_link(self, interaction: discord.Interaction, button: discord.ui.Button):
         user_name = interaction.user.name
         user_discriminator = interaction.user.discriminator
-        user_tag = f"{user_name}#{user_discriminator}" if user_discriminator != '0' else user_name
+        if user_discriminator != '0':
+            user_tag = f"{user_name}#{user_discriminator}"
+        else:
+            user_tag = user_name
         
         link = f"https://hater-tickets.netlify.app/?user={user_tag}"
         
@@ -118,12 +122,10 @@ class MyClient(discord.Client):
             discord_id_match = re.search(r'Discord ID.*: (.+)', content, re.IGNORECASE)
             discord_username = discord_id_match.group(1).strip() if discord_id_match else None
 
-            # Если не нашли — ищем "Discord:"
             if not discord_username:
                 discord_match = re.search(r'Discord: (.+)', content)
                 discord_username = discord_match.group(1).strip() if discord_match else None
 
-            # Если всё ещё пусто — ищем "Игровой ник"
             if not discord_username:
                 nickname_match = re.search(r'Игровой ник: (.+)', content)
                 discord_username = nickname_match.group(1).strip() if nickname_match else None
