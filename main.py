@@ -18,7 +18,12 @@ def keep_alive():
     t = Thread(target=run)
     t.start()
 
-TOKEN = os.environ['TOKEN']
+# ===== ИСПРАВЛЕНИЕ: ТОКЕН БЕРЕТСЯ ИЗ ПЕРЕМЕННЫХ ОКРУЖЕНИЯ =====
+TOKEN = os.environ.get('TOKEN')
+if not TOKEN:
+    print("❌ ОШИБКА: Токен не найден в переменных окружения!")
+    exit(1)
+
 CHANNEL_NAME = 'заявки-бот'
 
 # ===== КАТЕГОРИЯ ПО ИМЕНИ =====
