@@ -18,8 +18,8 @@ def keep_alive():
     t = Thread(target=run)
     t.start()
 
-# ===== ВСТАВЬ СВОЙ НОВЫЙ ТОКЕН СЮДА =====
-TOKEN = 'MTUxNzMwMzA2NjQyMzA3MDg1Mg.G-rg9k.1LEtpVTO3edp76y3k136nHer5GCTkTEipHZvA4'
+# ===== ВСТАВЬ СВОЙ ТОКЕН СЮДА (БЕЗ КАВЫЧЕК И ПРОБЕЛОВ) =====
+TOKEN = ''
 
 CHANNEL_NAME = 'заявки-бот'
 
