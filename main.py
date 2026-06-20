@@ -18,8 +18,8 @@ def keep_alive():
     t = Thread(target=run)
     t.start()
 
-# ===== ТОКЕН НАПРЯМУЮ В КОДЕ (ДЛЯ ТЕСТА) =====
-TOKEN = 'MTUxNzMwMzA2NjQyMzA3MDg1Mg.Gr4atA.kq9uP_-ij9Il1aOlwAjcasB09p-HYEQXXQGie0'
+# ===== ВСТАВЬ СВОЙ НОВЫЙ ТОКЕН СЮДА =====
+TOKEN = 'MTUxNzMwMzA2NjQyMzA3MDg1Mg.G-rg9k.1LEtpVTO3edp76y3k136nHer5GCTkTEipHZvA4'
 
 CHANNEL_NAME = 'заявки-бот'
 
@@ -103,8 +103,7 @@ class MyClient(discord.Client):
                     )
                 except discord.Forbidden:
                     await interaction.response.send_message(
-                        "❌ У тебя закрыты личные сообщения на сервере! "
-                        "Открой их в настройках Discord и попробуй снова.",
+                        embed=embed,
                         ephemeral=True
                     )
                 except Exception as e:
