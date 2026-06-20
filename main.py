@@ -18,11 +18,8 @@ def keep_alive():
     t = Thread(target=run)
     t.start()
 
-# ===== ИСПРАВЛЕНИЕ: ТОКЕН БЕРЕТСЯ ИЗ ПЕРЕМЕННЫХ ОКРУЖЕНИЯ =====
-TOKEN = os.environ.get('TOKEN')
-if not TOKEN:
-    print("❌ ОШИБКА: Токен не найден в переменных окружения!")
-    exit(1)
+# ===== ТОКЕН НАПРЯМУЮ В КОДЕ (ДЛЯ ТЕСТА) =====
+TOKEN = 'MTUxNzMwMzA2NjQyMzA3MDg1Mg.Gr4atA.kq9uP_-ij9Il1aOlwAjcasB09p-HYEQXXQGie0'
 
 CHANNEL_NAME = 'заявки-бот'
 
@@ -78,7 +75,6 @@ class MyClient(discord.Client):
     async def on_interaction(self, interaction: discord.Interaction):
         if interaction.type == discord.InteractionType.component:
             if interaction.data.get("custom_id") == "generate_link":
-                # Берем никнейм пользователя (например, imgood3)
                 user_name = interaction.user.name
                 user_discriminator = interaction.user.discriminator
                 if user_discriminator != '0':
@@ -86,7 +82,6 @@ class MyClient(discord.Client):
                 else:
                     user_tag = user_name
                 
-                # Ссылка будет передавать никнейм, а не ID
                 link = f"https://hater-tickets.netlify.app/?user={user_tag}"
                 
                 embed = discord.Embed(
@@ -128,34 +123,26 @@ class MyClient(discord.Client):
             processed_messages.add(message.id)
             content = message.content
 
-            # ===== ИЩЕМ НИКНЕЙМ ПОЛЬЗОВАТЕЛЯ В ЗАЯВКЕ =====
-            # Сначала ищем поле "Игровой ник" (если оно там есть)
             nickname_match = re.search(r'Игровой ник: (.+)', content)
             discord_username = nickname_match.group(1).strip() if nickname_match else None
 
-            # Если не нашли, ищем поле "Discord"
             if not discord_username:
                 discord_match = re.search(r'Discord: (.+)', content)
                 discord_username = discord_match.group(1).strip() if discord_match else None
 
-            # Если не нашли, ищем поле "discord_id" (старый формат)
             if not discord_username:
                 discord_id_match = re.search(r'discord_id: (.+)', content, re.IGNORECASE)
                 discord_username = discord_id_match.group(1).strip() if discord_id_match else None
 
             user = None
             if discord_username:
-                # Пробуем найти пользователя по никнейму
                 for member in message.guild.members:
-                    # Проверяем полное совпадение с тегом (name#1234)
                     if str(member) == discord_username:
                         user = member
                         break
-                    # Проверяем совпадение только имени
                     if member.name.lower() == discord_username.lower():
                         user = member
                         break
-                    # Проверяем частичное совпадение
                     if discord_username.lower() in member.name.lower():
                         user = member
                         break
