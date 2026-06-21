@@ -18,7 +18,6 @@ def keep_alive():
     t = Thread(target=run)
     t.start()
 
-# ===== ТОКЕН БЕРЁТСЯ ИЗ ПЕРЕМЕННЫХ ОКРУЖЕНИЯ =====
 TOKEN = os.environ.get('TOKEN')
 if not TOKEN:
     print("❌ Токен не найден! Добавь переменную TOKEN на Railway.")
@@ -39,6 +38,37 @@ ALLOWED_ROLES = [
 
 processed_messages = set()
 
+# ===== КНОПКА ДЛЯ ЗАКРЫТИЯ ТИКЕТА =====
+class CloseTicketView(View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(label="🔒 Закрыть тикет", style=discord.ButtonStyle.danger, custom_id="close_ticket")
+    async def close_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # Проверяем, есть ли у пользователя одна из разрешённых ролей
+        has_role = False
+        for role_id in ALLOWED_ROLES:
+            role = interaction.guild.get_role(role_id)
+            if role and role in interaction.user.roles:
+                has_role = True
+                break
+        
+        if not has_role:
+            await interaction.response.send_message(
+                "❌ У тебя нет прав закрывать тикеты!",
+                ephemeral=True
+            )
+            return
+        
+        # Удаляем канал
+        channel = interaction.channel
+        await channel.delete()
+        await interaction.response.send_message(
+            "✅ Тикет успешно закрыт!",
+            ephemeral=True
+        )
+
+# ===== КНОПКА ДЛЯ ГЕНЕРАЦИИ ССЫЛКИ =====
 class LinkButtonView(View):
     def __init__(self):
         super().__init__(timeout=None)
@@ -47,10 +77,7 @@ class LinkButtonView(View):
     async def generate_link(self, interaction: discord.Interaction, button: discord.ui.Button):
         user_name = interaction.user.name
         user_discriminator = interaction.user.discriminator
-        if user_discriminator != '0':
-            user_tag = f"{user_name}#{user_discriminator}"
-        else:
-            user_tag = user_name
+        user_tag = f"{user_name}#{user_discriminator}" if user_discriminator != '0' else user_name
         
         link = f"https://hater-tickets.netlify.app/?user={user_tag}"
         
@@ -118,13 +145,8 @@ class MyClient(discord.Client):
             processed_messages.add(message.id)
             content = message.content
 
-            # ===== ИЩЕМ ПОЛЕ "Discord ID" =====
-            discord_id_match = re.search(r'Discord ID.*: (.+)', content, re.IGNORECASE)
-            discord_username = discord_id_match.group(1).strip() if discord_id_match else None
-
-            if not discord_username:
-                discord_match = re.search(r'Discord: (.+)', content)
-                discord_username = discord_match.group(1).strip() if discord_match else None
+            discord_match = re.search(r'Discord: (.+)', content)
+            discord_username = discord_match.group(1).strip() if discord_match else None
 
             if not discord_username:
                 nickname_match = re.search(r'Игровой ник: (.+)', content)
@@ -162,8 +184,14 @@ class MyClient(discord.Client):
 
             mention = user.mention if user else discord_username or 'Не указан'
 
+            # ===== ОТПРАВЛЯЕМ СООБЩЕНИЕ С КНОПКОЙ ЗАКРЫТИЯ =====
+            view = CloseTicketView()
             await new_channel.send(f'📩 **Новая заявка от {mention}!**')
             await new_channel.send(content)
+            await new_channel.send(
+                "🔒 **Нажми на кнопку ниже, чтобы закрыть тикет.**\n*(Доступно только для ролей поддержки)*",
+                view=view
+            )
 
             await new_channel.set_permissions(guild.default_role, read_messages=False)
 
