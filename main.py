@@ -184,14 +184,11 @@ class MyClient(discord.Client):
 
             mention = user.mention if user else discord_username or 'Не указан'
 
-            # ===== ОТПРАВЛЯЕМ СООБЩЕНИЕ С КНОПКОЙ ЗАКРЫТИЯ =====
+            # ===== ОТПРАВЛЯЕМ СООБЩЕНИЕ С КНОПКОЙ ЗАКРЫТИЯ (БЕЗ ТЕКСТА) =====
             view = CloseTicketView()
             await new_channel.send(f'📩 **Новая заявка от {mention}!**')
             await new_channel.send(content)
-            await new_channel.send(
-                "🔒 **Нажми на кнопку ниже, чтобы закрыть тикет.**\n*(Доступно только для ролей поддержки)*",
-                view=view
-            )
+            await new_channel.send(view=view)  # Только кнопка, без текста
 
             await new_channel.set_permissions(guild.default_role, read_messages=False)
 
