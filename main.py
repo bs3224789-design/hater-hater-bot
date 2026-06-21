@@ -45,7 +45,6 @@ class CloseTicketView(View):
 
     @discord.ui.button(label="🔒 Закрыть тикет", style=discord.ButtonStyle.danger, custom_id="close_ticket")
     async def close_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
-        # Проверяем, есть ли у пользователя одна из разрешённых ролей
         has_role = False
         for role_id in ALLOWED_ROLES:
             role = interaction.guild.get_role(role_id)
@@ -60,7 +59,6 @@ class CloseTicketView(View):
             )
             return
         
-        # Удаляем канал
         channel = interaction.channel
         await channel.delete()
         await interaction.response.send_message(
@@ -123,8 +121,7 @@ class MyClient(discord.Client):
             embed = discord.Embed(
                 title="📩 Подать заявку в семью Хейтер",
                 description=(
-                    "Нажми на кнопку ниже, чтобы получить персональную ссылку для заполнения заявки.\n\n"
-                    "🔒 **Ссылка будет привязана к твоему Discord ID**"
+                    "Нажми на кнопку ниже, чтобы получить персональную ссылку для заполнения заявки."
                 ),
                 color=0x5865F2
             )
@@ -184,11 +181,10 @@ class MyClient(discord.Client):
 
             mention = user.mention if user else discord_username or 'Не указан'
 
-            # ===== ОТПРАВЛЯЕМ СООБЩЕНИЕ С КНОПКОЙ ЗАКРЫТИЯ (БЕЗ ТЕКСТА) =====
             view = CloseTicketView()
             await new_channel.send(f'📩 **Новая заявка от {mention}!**')
             await new_channel.send(content)
-            await new_channel.send(view=view)  # Только кнопка, без текста
+            await new_channel.send(view=view)
 
             await new_channel.set_permissions(guild.default_role, read_messages=False)
 
