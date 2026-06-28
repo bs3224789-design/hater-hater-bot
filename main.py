@@ -38,8 +38,8 @@ ALLOWED_ROLES = [
 
 processed_messages = set()
 
-# ===== КНОПКА ДЛЯ ЗАКРЫТИЯ ТИКЕТА =====
-class CloseTicketView(View):
+# ===== КНОПКИ ДЛЯ ТИКЕТА =====
+class TicketActionsView(View):
     def __init__(self):
         super().__init__(timeout=None)
 
@@ -64,6 +64,34 @@ class CloseTicketView(View):
         await interaction.response.send_message(
             "✅ Тикет успешно закрыт!",
             ephemeral=True
+        )
+
+    @discord.ui.button(label="📋 Взять на рассмотрение", style=discord.ButtonStyle.primary, custom_id="take_ticket")
+    async def take_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
+        has_role = False
+        for role_id in ALLOWED_ROLES:
+            role = interaction.guild.get_role(role_id)
+            if role and role in interaction.user.roles:
+                has_role = True
+                break
+        
+        if not has_role:
+            await interaction.response.send_message(
+                "❌ У тебя нет прав брать тикеты на рассмотрение!",
+                ephemeral=True
+            )
+            return
+        
+        # Переименовываем канал
+        channel = interaction.channel
+        old_name = channel.name
+        new_name = f"рассматривает-{interaction.user.name}"
+        await channel.edit(name=new_name)
+        
+        # Отправляем сообщение
+        await interaction.response.send_message(
+            f"✅ Тикет **{old_name}** взят на рассмотрение **{interaction.user.mention}**!",
+            ephemeral=False
         )
 
 # ===== КНОПКА ДЛЯ ГЕНЕРАЦИИ ССЫЛКИ =====
@@ -181,10 +209,13 @@ class MyClient(discord.Client):
 
             mention = user.mention if user else discord_username or 'Не указан'
 
-            view = CloseTicketView()
+            view = TicketActionsView()
             await new_channel.send(f'📩 **Новая заявка от {mention}!**')
             await new_channel.send(content)
-            await new_channel.send(view=view)
+            await new_channel.send(
+                "🔽 **Действия с тикетом:**",
+                view=view
+            )
 
             await new_channel.set_permissions(guild.default_role, read_messages=False)
 
