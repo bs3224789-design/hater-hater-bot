@@ -82,13 +82,11 @@ class TicketActionsView(View):
             )
             return
         
-        # Переименовываем канал
         channel = interaction.channel
         old_name = channel.name
         new_name = f"рассматривает-{interaction.user.name}"
         await channel.edit(name=new_name)
         
-        # Отправляем сообщение
         await interaction.response.send_message(
             f"✅ Тикет **{old_name}** взят на рассмотрение **{interaction.user.mention}**!",
             ephemeral=False
