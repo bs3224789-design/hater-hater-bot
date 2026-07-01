@@ -103,7 +103,8 @@ class LinkButtonView(View):
         user_discriminator = interaction.user.discriminator
         user_tag = f"{user_name}#{user_discriminator}" if user_discriminator != '0' else user_name
         
-        link = f"https://hater-tickets.netlify.app/?user={user_tag}"
+        # ===== ИСПРАВЛЕННАЯ ССЫЛКА =====
+        link = f"https://hater-website.netlify.app/?user={user_tag}"
         
         embed = discord.Embed(
             title="🔗 Твоя ссылка для заявки",
@@ -140,9 +141,10 @@ class MyClient(discord.Client):
         
         channel = self.get_channel(APPLY_CHANNEL_ID)
         if channel:
-            async for message in channel.history(limit=10):
-                if message.author == self.user and message.components:
-                    return
+            # Удаляем старые сообщения бота, чтобы не было дублей
+            async for message in channel.history(limit=20):
+                if message.author == self.user:
+                    await message.delete()
             
             embed = discord.Embed(
                 title="📩 Подать заявку в семью Хейтер",
