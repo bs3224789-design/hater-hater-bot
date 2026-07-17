@@ -103,8 +103,8 @@ class LinkButtonView(View):
         user_discriminator = interaction.user.discriminator
         user_tag = f"{user_name}#{user_discriminator}" if user_discriminator != '0' else user_name
         
-        # ===== ИСПРАВЛЕННАЯ ССЫЛКА =====
-        link = f"https://hater-website.netlify.app/?user={user_tag}"
+        # ===== ССЫЛКА НА САЙТ (Neocities) =====
+        link = f"https://hater-tickets.neocities.org/?user={user_tag}"
         
         embed = discord.Embed(
             title="🔗 Твоя ссылка для заявки",
