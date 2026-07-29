@@ -104,7 +104,7 @@ class LinkButtonView(View):
         user_tag = f"{user_name}#{user_discriminator}" if user_discriminator != '0' else user_name
         
         # ===== ИСПРАВЛЕННАЯ ССЫЛКА =====
-        link = f"https://hater-website.netlify.app/?user={user_tag}"
+      link = f"https://hater-website.vercel.app/?user={user_tag}"
         
         embed = discord.Embed(
             title="🔗 Твоя ссылка для заявки",
