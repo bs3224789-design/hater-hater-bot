@@ -92,13 +92,13 @@ class TicketActionsView(View):
             ephemeral=False
         )
 
-# ===== КНОПКА ДЛЯ ГЕНЕРАЦИИ ССЫЛКИ (с логотипом и кастомным эмодзи) =====
+# ===== КНОПКА ДЛЯ ГЕНЕРАЦИИ ССЫЛКИ (с эмодзи скрепки и картинкой в embed) =====
 class LinkButtonView(View):
     def __init__(self):
         super().__init__(timeout=None)
 
     @discord.ui.button(
-        label="<a:telegram:1518396390256939099> Сгенерировать ссылку",  # изменён label с эмодзи
+        label="🖇️ Сгенерировать ссылку",  # теперь скрепка
         style=discord.ButtonStyle.primary,
         custom_id="generate_link"
     )
@@ -118,7 +118,10 @@ class LinkButtonView(View):
             ),
             color=0x5865F2
         )
-        embed.set_thumbnail(url="https://i.postimg.cc/KvQ2CZ82/3dgifmaker48342.gif")  # логотип справа
+        # Логотип справа (как ты просил)
+        embed.set_thumbnail(url="https://i.postimg.cc/KvQ2CZ82/3dgifmaker48342.gif")
+        # Анимированная скрепка – добавлена как большая картинка в теле embed
+        embed.set_image(url="https://fonts.gstatic.com/s/e/notoemoji/latest/1f587_fe0f/512.gif")
         embed.set_footer(text="Семья Хейтер | GTA 5 RP")
         
         try:
@@ -157,7 +160,10 @@ class MyClient(discord.Client):
                 ),
                 color=0x5865F2
             )
-            embed.set_thumbnail(url="https://i.postimg.cc/KvQ2CZ82/3dgifmaker48342.gif")  # логотип справа
+            # Логотип справа
+            embed.set_thumbnail(url="https://i.postimg.cc/KvQ2CZ82/3dgifmaker48342.gif")
+            # Анимированная скрепка – картинка в теле embed
+            embed.set_image(url="https://fonts.gstatic.com/s/e/notoemoji/latest/1f587_fe0f/512.gif")
             embed.set_footer(text="Семья Хейтер | GTA 5 RP")
             
             view = LinkButtonView()
