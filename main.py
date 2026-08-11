@@ -45,24 +45,33 @@ class TicketActionsView(View):
 
     @discord.ui.button(label="🔒 Закрыть тикет", style=discord.ButtonStyle.danger, custom_id="close_ticket")
     async def close_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # Сразу defer, чтобы не истекало время
+        await interaction.response.defer(ephemeral=True)
+
         # Проверяем права
         if not any(interaction.guild.get_role(role_id) in interaction.user.roles for role_id in ALLOWED_ROLES):
-            await interaction.response.send_message("❌ У тебя нет прав закрывать тикеты!", ephemeral=True)
+            await interaction.followup.send("❌ У тебя нет прав закрывать тикеты!", ephemeral=True)
             return
 
         channel = interaction.channel
         try:
             await channel.delete()
-            await interaction.response.send_message("✅ Тикет успешно закрыт!", ephemeral=True)
+            await interaction.followup.send("✅ Тикет успешно закрыт!", ephemeral=True)
+        except discord.NotFound:
+            # Канал уже удалён
+            await interaction.followup.send("❌ Тикет уже закрыт.", ephemeral=True)
         except Exception as e:
-            await interaction.response.send_message("❌ Ошибка при закрытии тикета.", ephemeral=True)
+            await interaction.followup.send("❌ Ошибка при закрытии тикета.", ephemeral=True)
             print(f"Ошибка close_ticket: {e}")
 
     @discord.ui.button(label="📋 Взять на рассмотрение", style=discord.ButtonStyle.primary, custom_id="take_ticket")
     async def take_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # Сразу defer
+        await interaction.response.defer(ephemeral=False)
+
         # Проверяем права
         if not any(interaction.guild.get_role(role_id) in interaction.user.roles for role_id in ALLOWED_ROLES):
-            await interaction.response.send_message("❌ У тебя нет прав брать тикеты на рассмотрение!", ephemeral=True)
+            await interaction.followup.send("❌ У тебя нет прав брать тикеты на рассмотрение!", ephemeral=True)
             return
 
         channel = interaction.channel
@@ -70,12 +79,17 @@ class TicketActionsView(View):
 
         # Проверяем, не взял ли уже кто-то
         if old_name.startswith("рассматривает-"):
-            await interaction.response.send_message("❌ Этот тикет уже рассматривается!", ephemeral=True)
+            await interaction.followup.send("❌ Этот тикет уже рассматривается!", ephemeral=True)
             return
 
         # Переименовываем канал
         new_name = f"рассматривает-{interaction.user.name}"
-        await channel.edit(name=new_name)
+        try:
+            await channel.edit(name=new_name)
+        except Exception as e:
+            await interaction.followup.send("❌ Не удалось переименовать канал.", ephemeral=True)
+            print(f"Ошибка переименования: {e}")
+            return
 
         # Уведомляем создателя заявки
         topic = channel.topic
@@ -88,16 +102,18 @@ class TicketActionsView(View):
             except Exception as e:
                 print(f"Не удалось отправить уведомление: {e}")
 
-        await interaction.response.send_message(
+        await interaction.followup.send(
             f"✅ Тикет **{old_name}** взят на рассмотрение **{interaction.user.mention}**!",
             ephemeral=False
         )
 
     @discord.ui.button(label="🔄 Сняться с рассмотрения", style=discord.ButtonStyle.secondary, custom_id="untake_ticket")
     async def untake_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(ephemeral=False)
+
         # Проверяем права
         if not any(interaction.guild.get_role(role_id) in interaction.user.roles for role_id in ALLOWED_ROLES):
-            await interaction.response.send_message("❌ У тебя нет прав сниматься с рассмотрения!", ephemeral=True)
+            await interaction.followup.send("❌ У тебя нет прав сниматься с рассмотрения!", ephemeral=True)
             return
 
         channel = interaction.channel
@@ -105,35 +121,40 @@ class TicketActionsView(View):
 
         # Проверяем, что канал находится в состоянии "рассматривает-..."
         if not current_name.startswith("рассматривает-"):
-            await interaction.response.send_message("❌ Этот тикет сейчас не рассматривается!", ephemeral=True)
+            await interaction.followup.send("❌ Этот тикет сейчас не рассматривается!", ephemeral=True)
             return
 
         # Извлекаем имя создателя из темы
         topic = channel.topic
         if not topic or not topic.startswith("Создатель: "):
-            await interaction.response.send_message("❌ Не удалось определить создателя тикета.", ephemeral=True)
+            await interaction.followup.send("❌ Не удалось определить создателя тикета.", ephemeral=True)
             return
 
-        creator_name = topic.split(": ")[1]
-
-        # Переименовываем обратно в "тикет-{имя_создателя}"
+        creator_id_str = topic.split(": ")[1]
+        creator = None
         try:
-            creator_id = int(creator_name)
+            creator_id = int(creator_id_str)
             creator = interaction.guild.get_member(creator_id)
-            if creator:
-                new_name = f"тикет-{creator.name}"
-            else:
-                new_name = f"тикет-{creator_name}"
         except:
-            new_name = f"тикет-{creator_name}"
+            pass
 
-        await channel.edit(name=new_name)
+        # Переименовываем обратно
+        new_name = f"тикет-{creator.name if creator else 'unknown'}"
+        try:
+            await channel.edit(name=new_name)
+        except Exception as e:
+            await interaction.followup.send("❌ Не удалось переименовать канал.", ephemeral=True)
+            print(f"Ошибка переименования: {e}")
+            return
 
         # Уведомляем создателя
         if creator:
-            await creator.send(f"🔄 Рассмотрение вашей заявки было отменено сотрудником {interaction.user.mention}.")
+            try:
+                await creator.send(f"🔄 Рассмотрение вашей заявки было отменено сотрудником {interaction.user.mention}.")
+            except Exception as e:
+                print(f"Не удалось отправить уведомление об отмене: {e}")
 
-        await interaction.response.send_message(
+        await interaction.followup.send(
             f"✅ Ты снялся с рассмотрения тикета **{current_name}**.",
             ephemeral=False
         )
@@ -149,6 +170,9 @@ class LinkButtonView(View):
         custom_id="generate_link"
     )
     async def generate_link(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # Здесь defer не нужен, потому что операция быстрая, но на всякий случай можно
+        await interaction.response.defer(ephemeral=True)
+
         user_name = interaction.user.name
         user_discriminator = interaction.user.discriminator
         user_tag = f"{user_name}#{user_discriminator}" if user_discriminator != '0' else user_name
@@ -164,23 +188,22 @@ class LinkButtonView(View):
             ),
             color=0x5865F2
         )
-        # Логотип справа (добавлено)
         embed.set_thumbnail(url="https://i.postimg.cc/KvQ2CZ82/3dgifmaker48342.gif")
         embed.set_footer(text="Семья Хейтер | GTA 5 RP")
         
         try:
             await interaction.user.send(embed=embed)
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 "✅ Ссылка отправлена тебе в **личные сообщения**!",
                 ephemeral=True
             )
         except discord.Forbidden:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 embed=embed,
                 ephemeral=True
             )
         except Exception as e:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 "❌ Произошла ошибка. Попробуй позже.",
                 ephemeral=True
             )
@@ -204,7 +227,6 @@ class MyClient(discord.Client):
                 ),
                 color=0x5865F2
             )
-            # Логотип справа (добавлено)
             embed.set_thumbnail(url="https://i.postimg.cc/KvQ2CZ82/3dgifmaker48342.gif")
             embed.set_footer(text="Семья Хейтер | GTA 5 RP")
             
