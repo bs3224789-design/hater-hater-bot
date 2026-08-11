@@ -114,17 +114,16 @@ class TicketActionsView(View):
             await interaction.response.send_message("❌ Не удалось определить создателя тикета.", ephemeral=True)
             return
 
-        creator_name = topic.split(": ")[1]  # это ID, но мы можем использовать его для переименования
+        creator_name = topic.split(": ")[1]
 
         # Переименовываем обратно в "тикет-{имя_создателя}"
-        # Получаем имя пользователя по ID
         try:
             creator_id = int(creator_name)
             creator = interaction.guild.get_member(creator_id)
             if creator:
                 new_name = f"тикет-{creator.name}"
             else:
-                new_name = f"тикет-{creator_name}"  # на всякий случай
+                new_name = f"тикет-{creator_name}"
         except:
             new_name = f"тикет-{creator_name}"
 
@@ -139,7 +138,7 @@ class TicketActionsView(View):
             ephemeral=False
         )
 
-# ===== КНОПКА ДЛЯ ГЕНЕРАЦИИ ССЫЛКИ (простая, без картинок) =====
+# ===== КНОПКА ДЛЯ ГЕНЕРАЦИИ ССЫЛКИ =====
 class LinkButtonView(View):
     def __init__(self):
         super().__init__(timeout=None)
@@ -165,6 +164,8 @@ class LinkButtonView(View):
             ),
             color=0x5865F2
         )
+        # Логотип справа (добавлено)
+        embed.set_thumbnail(url="https://i.postimg.cc/KvQ2CZ82/3dgifmaker48342.gif")
         embed.set_footer(text="Семья Хейтер | GTA 5 RP")
         
         try:
@@ -203,6 +204,8 @@ class MyClient(discord.Client):
                 ),
                 color=0x5865F2
             )
+            # Логотип справа (добавлено)
+            embed.set_thumbnail(url="https://i.postimg.cc/KvQ2CZ82/3dgifmaker48342.gif")
             embed.set_footer(text="Семья Хейтер | GTA 5 RP")
             
             view = LinkButtonView()
