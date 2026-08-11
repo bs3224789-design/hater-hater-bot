@@ -1,6 +1,7 @@
 import discord
 import os
 import re
+import traceback
 from flask import Flask
 from threading import Thread
 from discord.ui import Button, View
@@ -83,50 +84,66 @@ class TicketActionsView(View):
             print(f"Ошибка переименования: {e}")
             return
 
-        # --- УВЕДОМЛЕНИЕ СОЗДАТЕЛЮ ---
+        # --- УВЕДОМЛЕНИЕ СОЗДАТЕЛЮ (улучшенное) ---
         topic = channel.topic
         creator = None
         if topic and topic.startswith("Создатель: "):
             try:
                 creator_id_str = topic.split(": ")[1].strip()
-                creator_id = int(creator_id_str)  # преобразуем в число
-                # Сначала пробуем из кеша
+                creator_id = int(creator_id_str)
+                print(f"[DEBUG] Creator ID from topic: {creator_id}")
+
+                # 1. Попытка из кеша
                 creator = interaction.guild.get_member(creator_id)
+                print(f"[DEBUG] get_member result: {creator}")
+
+                # 2. Если нет, fetch_member
                 if creator is None:
-                    # Если нет в кеше, загружаем с сервера
                     try:
                         creator = await interaction.guild.fetch_member(creator_id)
+                        print(f"[DEBUG] fetch_member result: {creator}")
                     except discord.NotFound:
-                        creator = None
+                        print("[DEBUG] fetch_member: NotFound")
                     except discord.Forbidden:
-                        # Если нет прав на fetch_member, пытаемся другим способом
-                        # Например, обновить список участников
+                        print("[DEBUG] fetch_member: Forbidden (недостаточно прав)")
+                    except Exception as e:
+                        print(f"[DEBUG] fetch_member error: {e}")
+
+                # 3. Если всё ещё None, пробуем chunk (загрузить всех участников)
+                if creator is None:
+                    print("[DEBUG] Пробуем chunk()...")
+                    try:
                         await interaction.guild.chunk()
                         creator = interaction.guild.get_member(creator_id)
+                        print(f"[DEBUG] after chunk get_member: {creator}")
+                    except Exception as e:
+                        print(f"[DEBUG] chunk error: {e}")
+
+                # 4. Если даже после chunk None – возможно, пользователь не на сервере
                 if creator is None:
-                    # Если всё равно None, выводим предупреждение
-                    await interaction.followup.send("⚠️ Создатель заявки не найден на сервере. Уведомление не отправлено.", ephemeral=True)
+                    await interaction.followup.send(
+                        "⚠️ **Создатель заявки не найден на сервере.**\n"
+                        f"ID: {creator_id}\n"
+                        "Проверь, что этот пользователь всё ещё на сервере, и что у бота включены **Server Members Intent** в Discord Developer Portal.",
+                        ephemeral=True
+                    )
                 else:
+                    # Отправляем уведомление в ЛС
                     try:
                         await creator.send(f"📩 **Ваша заявка** была взята на рассмотрение **{interaction.user.mention}** в канале {channel.mention}.")
+                        await interaction.followup.send("✅ Уведомление создателю отправлено в ЛС.", ephemeral=True)
                     except discord.Forbidden:
                         await interaction.followup.send("⚠️ Не удалось отправить уведомление (у создателя закрыты ЛС).", ephemeral=True)
+                    except Exception as e:
+                        print(f"Ошибка при отправке ЛС: {e}")
+                        await interaction.followup.send("❌ Ошибка при отправке уведомления в ЛС.", ephemeral=True)
+
             except ValueError:
-                # Если в теме не число (например, имя), пробуем найти по имени
-                await interaction.followup.send("⚠️ В теме канала сохранено имя вместо ID. Обратитесь к администратору.", ephemeral=True)
-                # Попробуем найти по имени (для совместимости)
-                try:
-                    name = topic.split(": ")[1].strip()
-                    creator = discord.utils.get(interaction.guild.members, name=name)
-                    if creator:
-                        await creator.send(f"📩 **Ваша заявка** была взята на рассмотрение **{interaction.user.mention}** в канале {channel.mention}.")
-                    else:
-                        await interaction.followup.send("⚠️ Не удалось найти создателя по имени.", ephemeral=True)
-                except:
-                    pass
+                await interaction.followup.send("⚠️ Ошибка: в теме канала сохранён некорректный ID создателя.", ephemeral=True)
+                print(f"[ERROR] Некорректный ID в теме: {topic}")
             except Exception as e:
-                print(f"Ошибка при получении создателя: {e}")
-                await interaction.followup.send("❌ Ошибка при отправке уведомления.", ephemeral=True)
+                print(f"[ERROR] Общая ошибка при получении создателя:\n{traceback.format_exc()}")
+                await interaction.followup.send(f"❌ Внутренняя ошибка: {e}", ephemeral=True)
 
         await interaction.followup.send(
             f"✅ Тикет **{old_name}** взят на рассмотрение **{interaction.user.mention}**!",
@@ -161,12 +178,13 @@ class TicketActionsView(View):
             if creator is None:
                 try:
                     creator = await interaction.guild.fetch_member(creator_id)
-                except discord.NotFound:
-                    creator = None
-        except ValueError:
-            # если имя, попробуем по имени
-            name = creator_id_str
-            creator = discord.utils.get(interaction.guild.members, name=name)
+                except:
+                    pass
+                if creator is None:
+                    await interaction.guild.chunk()
+                    creator = interaction.guild.get_member(creator_id)
+        except:
+            pass
 
         new_name = f"тикет-{creator.name if creator else 'unknown'}"
         try:
@@ -231,6 +249,13 @@ class LinkButtonView(View):
 class MyClient(discord.Client):
     async def on_ready(self):
         print(f'✅ Бот {self.user} запущен!')
+        # Принудительно загружаем всех участников для всех гильдий
+        for guild in self.guilds:
+            try:
+                await guild.chunk()
+                print(f"✅ Загружены участники для {guild.name}")
+            except Exception as e:
+                print(f"❌ Не удалось загрузить участников для {guild.name}: {e}")
 
         channel = self.get_channel(APPLY_CHANNEL_ID)
         if channel:
@@ -297,7 +322,7 @@ class MyClient(discord.Client):
                 category=category
             )
 
-            # СОХРАНЯЕМ ID СОЗДАТЕЛЯ (число) — ИСПРАВЛЕНО
+            # Сохраняем ID создателя (число)
             await new_channel.edit(topic=f"Создатель: {message.author.id}")
 
             mention = user.mention if user else discord_username or 'Не указан'
