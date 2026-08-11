@@ -45,60 +45,107 @@ class TicketActionsView(View):
 
     @discord.ui.button(label="🔒 Закрыть тикет", style=discord.ButtonStyle.danger, custom_id="close_ticket")
     async def close_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
-        has_role = False
-        for role_id in ALLOWED_ROLES:
-            role = interaction.guild.get_role(role_id)
-            if role and role in interaction.user.roles:
-                has_role = True
-                break
-        
-        if not has_role:
-            await interaction.response.send_message(
-                "❌ У тебя нет прав закрывать тикеты!",
-                ephemeral=True
-            )
+        # Проверяем права
+        if not any(interaction.guild.get_role(role_id) in interaction.user.roles for role_id in ALLOWED_ROLES):
+            await interaction.response.send_message("❌ У тебя нет прав закрывать тикеты!", ephemeral=True)
             return
-        
+
         channel = interaction.channel
-        await channel.delete()
-        await interaction.response.send_message(
-            "✅ Тикет успешно закрыт!",
-            ephemeral=True
-        )
+        try:
+            await channel.delete()
+            await interaction.response.send_message("✅ Тикет успешно закрыт!", ephemeral=True)
+        except Exception as e:
+            await interaction.response.send_message("❌ Ошибка при закрытии тикета.", ephemeral=True)
+            print(f"Ошибка close_ticket: {e}")
 
     @discord.ui.button(label="📋 Взять на рассмотрение", style=discord.ButtonStyle.primary, custom_id="take_ticket")
     async def take_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
-        has_role = False
-        for role_id in ALLOWED_ROLES:
-            role = interaction.guild.get_role(role_id)
-            if role and role in interaction.user.roles:
-                has_role = True
-                break
-        
-        if not has_role:
-            await interaction.response.send_message(
-                "❌ У тебя нет прав брать тикеты на рассмотрение!",
-                ephemeral=True
-            )
+        # Проверяем права
+        if not any(interaction.guild.get_role(role_id) in interaction.user.roles for role_id in ALLOWED_ROLES):
+            await interaction.response.send_message("❌ У тебя нет прав брать тикеты на рассмотрение!", ephemeral=True)
             return
-        
+
         channel = interaction.channel
         old_name = channel.name
+
+        # Проверяем, не взял ли уже кто-то
+        if old_name.startswith("рассматривает-"):
+            await interaction.response.send_message("❌ Этот тикет уже рассматривается!", ephemeral=True)
+            return
+
+        # Переименовываем канал
         new_name = f"рассматривает-{interaction.user.name}"
         await channel.edit(name=new_name)
-        
+
+        # Уведомляем создателя заявки
+        topic = channel.topic
+        if topic and topic.startswith("Создатель: "):
+            try:
+                creator_id = int(topic.split(": ")[1])
+                creator = interaction.guild.get_member(creator_id)
+                if creator:
+                    await creator.send(f"📩 **Ваша заявка** была взята на рассмотрение **{interaction.user.mention}** в канале {channel.mention}.")
+            except Exception as e:
+                print(f"Не удалось отправить уведомление: {e}")
+
         await interaction.response.send_message(
             f"✅ Тикет **{old_name}** взят на рассмотрение **{interaction.user.mention}**!",
             ephemeral=False
         )
 
-# ===== КНОПКА ДЛЯ ГЕНЕРАЦИИ ССЫЛКИ (с эмодзи скрепки и картинкой в embed) =====
+    @discord.ui.button(label="🔄 Сняться с рассмотрения", style=discord.ButtonStyle.secondary, custom_id="untake_ticket")
+    async def untake_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # Проверяем права
+        if not any(interaction.guild.get_role(role_id) in interaction.user.roles for role_id in ALLOWED_ROLES):
+            await interaction.response.send_message("❌ У тебя нет прав сниматься с рассмотрения!", ephemeral=True)
+            return
+
+        channel = interaction.channel
+        current_name = channel.name
+
+        # Проверяем, что канал находится в состоянии "рассматривает-..."
+        if not current_name.startswith("рассматривает-"):
+            await interaction.response.send_message("❌ Этот тикет сейчас не рассматривается!", ephemeral=True)
+            return
+
+        # Извлекаем имя создателя из темы
+        topic = channel.topic
+        if not topic or not topic.startswith("Создатель: "):
+            await interaction.response.send_message("❌ Не удалось определить создателя тикета.", ephemeral=True)
+            return
+
+        creator_name = topic.split(": ")[1]  # это ID, но мы можем использовать его для переименования
+
+        # Переименовываем обратно в "тикет-{имя_создателя}"
+        # Получаем имя пользователя по ID
+        try:
+            creator_id = int(creator_name)
+            creator = interaction.guild.get_member(creator_id)
+            if creator:
+                new_name = f"тикет-{creator.name}"
+            else:
+                new_name = f"тикет-{creator_name}"  # на всякий случай
+        except:
+            new_name = f"тикет-{creator_name}"
+
+        await channel.edit(name=new_name)
+
+        # Уведомляем создателя
+        if creator:
+            await creator.send(f"🔄 Рассмотрение вашей заявки было отменено сотрудником {interaction.user.mention}.")
+
+        await interaction.response.send_message(
+            f"✅ Ты снялся с рассмотрения тикета **{current_name}**.",
+            ephemeral=False
+        )
+
+# ===== КНОПКА ДЛЯ ГЕНЕРАЦИИ ССЫЛКИ (простая, без картинок) =====
 class LinkButtonView(View):
     def __init__(self):
         super().__init__(timeout=None)
 
     @discord.ui.button(
-        label="🖇️ Сгенерировать ссылку",  # теперь скрепка
+        label="🖇️ Сгенерировать ссылку",
         style=discord.ButtonStyle.primary,
         custom_id="generate_link"
     )
@@ -118,10 +165,6 @@ class LinkButtonView(View):
             ),
             color=0x5865F2
         )
-        # Логотип справа (как ты просил)
-        embed.set_thumbnail(url="https://i.postimg.cc/KvQ2CZ82/3dgifmaker48342.gif")
-        # Анимированная скрепка – добавлена как большая картинка в теле embed
-        embed.set_image(url="https://fonts.gstatic.com/s/e/notoemoji/latest/1f587_fe0f/512.gif")
         embed.set_footer(text="Семья Хейтер | GTA 5 RP")
         
         try:
@@ -160,10 +203,6 @@ class MyClient(discord.Client):
                 ),
                 color=0x5865F2
             )
-            # Логотип справа
-            embed.set_thumbnail(url="https://i.postimg.cc/KvQ2CZ82/3dgifmaker48342.gif")
-            # Анимированная скрепка – картинка в теле embed
-            embed.set_image(url="https://fonts.gstatic.com/s/e/notoemoji/latest/1f587_fe0f/512.gif")
             embed.set_footer(text="Семья Хейтер | GTA 5 RP")
             
             view = LinkButtonView()
@@ -217,6 +256,9 @@ class MyClient(discord.Client):
                 f'тикет-{message.author.name}',
                 category=category
             )
+
+            # Сохраняем ID создателя в теме канала
+            await new_channel.edit(topic=f"Создатель: {message.author.id}")
 
             mention = user.mention if user else discord_username or 'Не указан'
 
