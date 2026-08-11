@@ -52,11 +52,9 @@ class TicketActionsView(View):
 
         channel = interaction.channel
         try:
-            # Сначала отправляем подтверждение, потом удаляем канал
             await interaction.followup.send("✅ Тикет успешно закрыт!", ephemeral=True)
             await channel.delete()
         except discord.NotFound:
-            # Канал уже удалён
             await interaction.followup.send("❌ Тикет уже закрыт.", ephemeral=True)
         except Exception as e:
             await interaction.followup.send("❌ Ошибка при закрытии тикета.", ephemeral=True)
@@ -85,27 +83,41 @@ class TicketActionsView(View):
             print(f"Ошибка переименования: {e}")
             return
 
-        # Уведомление создателя
+        # Получаем создателя из темы
         topic = channel.topic
+        creator = None
         if topic and topic.startswith("Создатель: "):
             try:
-                creator_id = int(topic.split(": ")[1])
+                creator_id_str = topic.split(": ")[1].strip()
+                creator_id = int(creator_id_str)
                 creator = interaction.guild.get_member(creator_id)
                 if creator is None:
                     try:
                         creator = await interaction.guild.fetch_member(creator_id)
                     except discord.NotFound:
+                        print(f"Участник с ID {creator_id} не найден на сервере.")
                         creator = None
-                if creator:
-                    try:
-                        await creator.send(f"📩 **Ваша заявка** была взята на рассмотрение **{interaction.user.mention}** в канале {channel.mention}.")
-                    except discord.Forbidden:
-                        await interaction.followup.send("⚠️ Не удалось отправить уведомление создателю (закрыты ЛС).", ephemeral=True)
-                else:
-                    await interaction.followup.send("⚠️ Создатель заявки не найден на сервере.", ephemeral=True)
+                    except discord.HTTPException as e:
+                        print(f"HTTP ошибка при fetch_member: {e}")
+                        creator = None
+            except ValueError:
+                print(f"Не удалось преобразовать ID создателя: {topic.split(': ')[1]}")
+                creator = None
+            except Exception as e:
+                print(f"Ошибка при получении создателя: {e}")
+                creator = None
+
+        # Отправляем уведомление
+        if creator:
+            try:
+                await creator.send(f"📩 **Ваша заявка** была взята на рассмотрение **{interaction.user.mention}** в канале {channel.mention}.")
+            except discord.Forbidden:
+                await interaction.followup.send("⚠️ Не удалось отправить уведомление создателю (закрыты ЛС).", ephemeral=True)
             except Exception as e:
                 print(f"Не удалось отправить уведомление: {e}")
-                await interaction.followup.send("❌ Ошибка при отправке уведомления.", ephemeral=True)
+                await interaction.followup.send("❌ Ошибка при отправке уведомления в ЛС.", ephemeral=True)
+        else:
+            await interaction.followup.send("⚠️ Создатель заявки не найден на сервере. Уведомление не отправлено.", ephemeral=True)
 
         await interaction.followup.send(
             f"✅ Тикет **{old_name}** взят на рассмотрение **{interaction.user.mention}**!",
@@ -132,18 +144,26 @@ class TicketActionsView(View):
             await interaction.followup.send("❌ Не удалось определить создателя тикета.", ephemeral=True)
             return
 
-        creator_id_str = topic.split(": ")[1]
         creator = None
         try:
+            creator_id_str = topic.split(": ")[1].strip()
             creator_id = int(creator_id_str)
             creator = interaction.guild.get_member(creator_id)
             if creator is None:
                 try:
                     creator = await interaction.guild.fetch_member(creator_id)
                 except discord.NotFound:
+                    print(f"Участник с ID {creator_id} не найден для снятия.")
                     creator = None
-        except:
-            pass
+                except discord.HTTPException as e:
+                    print(f"HTTP ошибка при fetch_member: {e}")
+                    creator = None
+        except ValueError:
+            print(f"Невалидный ID создателя: {topic.split(': ')[1]}")
+            creator = None
+        except Exception as e:
+            print(f"Ошибка при получении создателя: {e}")
+            creator = None
 
         new_name = f"тикет-{creator.name if creator else 'unknown'}"
         try:
@@ -160,6 +180,8 @@ class TicketActionsView(View):
                 await interaction.followup.send("⚠️ Не удалось отправить уведомление создателю (закрыты ЛС).", ephemeral=True)
             except Exception as e:
                 print(f"Не удалось отправить уведомление об отмене: {e}")
+        else:
+            await interaction.followup.send("⚠️ Создатель заявки не найден на сервере. Уведомление не отправлено.", ephemeral=True)
 
         await interaction.followup.send(
             f"✅ Ты снялся с рассмотрения тикета **{current_name}**.",
