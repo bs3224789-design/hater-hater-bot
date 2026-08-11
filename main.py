@@ -38,25 +38,23 @@ ALLOWED_ROLES = [
 
 processed_messages = set()
 
-# ===== КНОПКИ ДЛЯ ТИКЕТА =====
 class TicketActionsView(View):
     def __init__(self):
         super().__init__(timeout=None)
 
     @discord.ui.button(label="🔒 Закрыть тикет", style=discord.ButtonStyle.danger, custom_id="close_ticket")
     async def close_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
-        # Сразу defer, чтобы не истекало время
         await interaction.response.defer(ephemeral=True)
 
-        # Проверяем права
         if not any(interaction.guild.get_role(role_id) in interaction.user.roles for role_id in ALLOWED_ROLES):
             await interaction.followup.send("❌ У тебя нет прав закрывать тикеты!", ephemeral=True)
             return
 
         channel = interaction.channel
         try:
-            await channel.delete()
+            # Сначала отправляем подтверждение, потом удаляем канал
             await interaction.followup.send("✅ Тикет успешно закрыт!", ephemeral=True)
+            await channel.delete()
         except discord.NotFound:
             # Канал уже удалён
             await interaction.followup.send("❌ Тикет уже закрыт.", ephemeral=True)
@@ -66,10 +64,8 @@ class TicketActionsView(View):
 
     @discord.ui.button(label="📋 Взять на рассмотрение", style=discord.ButtonStyle.primary, custom_id="take_ticket")
     async def take_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
-        # Сразу defer
         await interaction.response.defer(ephemeral=False)
 
-        # Проверяем права
         if not any(interaction.guild.get_role(role_id) in interaction.user.roles for role_id in ALLOWED_ROLES):
             await interaction.followup.send("❌ У тебя нет прав брать тикеты на рассмотрение!", ephemeral=True)
             return
@@ -77,12 +73,10 @@ class TicketActionsView(View):
         channel = interaction.channel
         old_name = channel.name
 
-        # Проверяем, не взял ли уже кто-то
         if old_name.startswith("рассматривает-"):
             await interaction.followup.send("❌ Этот тикет уже рассматривается!", ephemeral=True)
             return
 
-        # Переименовываем канал
         new_name = f"рассматривает-{interaction.user.name}"
         try:
             await channel.edit(name=new_name)
@@ -91,16 +85,27 @@ class TicketActionsView(View):
             print(f"Ошибка переименования: {e}")
             return
 
-        # Уведомляем создателя заявки
+        # Уведомление создателя
         topic = channel.topic
         if topic and topic.startswith("Создатель: "):
             try:
                 creator_id = int(topic.split(": ")[1])
                 creator = interaction.guild.get_member(creator_id)
+                if creator is None:
+                    try:
+                        creator = await interaction.guild.fetch_member(creator_id)
+                    except discord.NotFound:
+                        creator = None
                 if creator:
-                    await creator.send(f"📩 **Ваша заявка** была взята на рассмотрение **{interaction.user.mention}** в канале {channel.mention}.")
+                    try:
+                        await creator.send(f"📩 **Ваша заявка** была взята на рассмотрение **{interaction.user.mention}** в канале {channel.mention}.")
+                    except discord.Forbidden:
+                        await interaction.followup.send("⚠️ Не удалось отправить уведомление создателю (закрыты ЛС).", ephemeral=True)
+                else:
+                    await interaction.followup.send("⚠️ Создатель заявки не найден на сервере.", ephemeral=True)
             except Exception as e:
                 print(f"Не удалось отправить уведомление: {e}")
+                await interaction.followup.send("❌ Ошибка при отправке уведомления.", ephemeral=True)
 
         await interaction.followup.send(
             f"✅ Тикет **{old_name}** взят на рассмотрение **{interaction.user.mention}**!",
@@ -111,7 +116,6 @@ class TicketActionsView(View):
     async def untake_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=False)
 
-        # Проверяем права
         if not any(interaction.guild.get_role(role_id) in interaction.user.roles for role_id in ALLOWED_ROLES):
             await interaction.followup.send("❌ У тебя нет прав сниматься с рассмотрения!", ephemeral=True)
             return
@@ -119,12 +123,10 @@ class TicketActionsView(View):
         channel = interaction.channel
         current_name = channel.name
 
-        # Проверяем, что канал находится в состоянии "рассматривает-..."
         if not current_name.startswith("рассматривает-"):
             await interaction.followup.send("❌ Этот тикет сейчас не рассматривается!", ephemeral=True)
             return
 
-        # Извлекаем имя создателя из темы
         topic = channel.topic
         if not topic or not topic.startswith("Создатель: "):
             await interaction.followup.send("❌ Не удалось определить создателя тикета.", ephemeral=True)
@@ -135,10 +137,14 @@ class TicketActionsView(View):
         try:
             creator_id = int(creator_id_str)
             creator = interaction.guild.get_member(creator_id)
+            if creator is None:
+                try:
+                    creator = await interaction.guild.fetch_member(creator_id)
+                except discord.NotFound:
+                    creator = None
         except:
             pass
 
-        # Переименовываем обратно
         new_name = f"тикет-{creator.name if creator else 'unknown'}"
         try:
             await channel.edit(name=new_name)
@@ -147,10 +153,11 @@ class TicketActionsView(View):
             print(f"Ошибка переименования: {e}")
             return
 
-        # Уведомляем создателя
         if creator:
             try:
                 await creator.send(f"🔄 Рассмотрение вашей заявки было отменено сотрудником {interaction.user.mention}.")
+            except discord.Forbidden:
+                await interaction.followup.send("⚠️ Не удалось отправить уведомление создателю (закрыты ЛС).", ephemeral=True)
             except Exception as e:
                 print(f"Не удалось отправить уведомление об отмене: {e}")
 
@@ -159,7 +166,6 @@ class TicketActionsView(View):
             ephemeral=False
         )
 
-# ===== КНОПКА ДЛЯ ГЕНЕРАЦИИ ССЫЛКИ =====
 class LinkButtonView(View):
     def __init__(self):
         super().__init__(timeout=None)
@@ -170,15 +176,14 @@ class LinkButtonView(View):
         custom_id="generate_link"
     )
     async def generate_link(self, interaction: discord.Interaction, button: discord.ui.Button):
-        # Здесь defer не нужен, потому что операция быстрая, но на всякий случай можно
         await interaction.response.defer(ephemeral=True)
 
         user_name = interaction.user.name
         user_discriminator = interaction.user.discriminator
         user_tag = f"{user_name}#{user_discriminator}" if user_discriminator != '0' else user_name
-        
+
         link = f"https://hater-website.vercel.app/?user={user_tag}"
-        
+
         embed = discord.Embed(
             title="🔗 Твоя ссылка для заявки",
             description=(
@@ -190,46 +195,34 @@ class LinkButtonView(View):
         )
         embed.set_thumbnail(url="https://i.postimg.cc/KvQ2CZ82/3dgifmaker48342.gif")
         embed.set_footer(text="Семья Хейтер | GTA 5 RP")
-        
+
         try:
             await interaction.user.send(embed=embed)
-            await interaction.followup.send(
-                "✅ Ссылка отправлена тебе в **личные сообщения**!",
-                ephemeral=True
-            )
+            await interaction.followup.send("✅ Ссылка отправлена тебе в **личные сообщения**!", ephemeral=True)
         except discord.Forbidden:
-            await interaction.followup.send(
-                embed=embed,
-                ephemeral=True
-            )
+            await interaction.followup.send(embed=embed, ephemeral=True)
         except Exception as e:
-            await interaction.followup.send(
-                "❌ Произошла ошибка. Попробуй позже.",
-                ephemeral=True
-            )
+            await interaction.followup.send("❌ Произошла ошибка. Попробуй позже.", ephemeral=True)
             print(f'❌ Ошибка: {e}')
 
 class MyClient(discord.Client):
     async def on_ready(self):
         print(f'✅ Бот {self.user} запущен!')
-        
+
         channel = self.get_channel(APPLY_CHANNEL_ID)
         if channel:
-            # Удаляем старые сообщения бота, чтобы не было дублей
             async for message in channel.history(limit=20):
                 if message.author == self.user:
                     await message.delete()
-            
+
             embed = discord.Embed(
                 title="📩 Подать заявку в семью Хейтер",
-                description=(
-                    "Нажми на кнопку ниже, чтобы получить персональную ссылку для заполнения заявки."
-                ),
+                description="Нажми на кнопку ниже, чтобы получить персональную ссылку для заполнения заявки.",
                 color=0x5865F2
             )
             embed.set_thumbnail(url="https://i.postimg.cc/KvQ2CZ82/3dgifmaker48342.gif")
             embed.set_footer(text="Семья Хейтер | GTA 5 RP")
-            
+
             view = LinkButtonView()
             await channel.send(embed=embed, view=view)
             print(f'✅ Сообщение с кнопкой отправлено в канал {channel.name}')
@@ -266,9 +259,8 @@ class MyClient(discord.Client):
                         break
 
             guild = message.guild
-            
+
             category = discord.utils.get(guild.categories, name=CATEGORY_NAME)
-            
             if category is None:
                 category = await guild.create_category(CATEGORY_NAME)
                 await category.set_permissions(guild.default_role, read_messages=False)
@@ -282,7 +274,6 @@ class MyClient(discord.Client):
                 category=category
             )
 
-            # Сохраняем ID создателя в теме канала
             await new_channel.edit(topic=f"Создатель: {message.author.id}")
 
             mention = user.mention if user else discord_username or 'Не указан'
@@ -290,10 +281,7 @@ class MyClient(discord.Client):
             view = TicketActionsView()
             await new_channel.send(f'📩 **Новая заявка от {mention}!**')
             await new_channel.send(content)
-            await new_channel.send(
-                "🔽 **Действия с тикетом:**",
-                view=view
-            )
+            await new_channel.send("🔽 **Действия с тикетом:**", view=view)
 
             await new_channel.set_permissions(guild.default_role, read_messages=False)
 
