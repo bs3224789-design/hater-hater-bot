@@ -1,7 +1,6 @@
 import discord
 import os
 import re
-import traceback
 from flask import Flask
 from threading import Thread
 from discord.ui import Button, View
@@ -61,51 +60,6 @@ class TicketActionsView(View):
             await interaction.followup.send("❌ Ошибка при закрытии тикета.", ephemeral=True)
             print(f"Ошибка close_ticket: {e}")
 
-    async def get_creator(self, client, guild, channel):
-        """Получает создателя по ID из темы канала, используя глобальный fetch_user."""
-        topic = channel.topic
-        if not topic or not topic.startswith("Создатель: "):
-            return None, "В теме канала нет информации о создателе."
-
-        creator_id_str = topic.split(": ")[1].strip()
-        try:
-            creator_id = int(creator_id_str)
-        except ValueError:
-            return None, f"Некорректный ID в теме: {creator_id_str}"
-
-        print(f"[DEBUG] Ищем пользователя с ID: {creator_id}")
-
-        # Сначала пробуем через гильдию (кеш + fetch_member)
-        creator = guild.get_member(creator_id)
-        if creator:
-            print(f"[DEBUG] Найден через get_member: {creator}")
-            return creator, None
-
-        try:
-            creator = await guild.fetch_member(creator_id)
-            if creator:
-                print(f"[DEBUG] Найден через fetch_member: {creator}")
-                return creator, None
-        except discord.NotFound:
-            print("[DEBUG] fetch_member: NotFound")
-        except discord.Forbidden:
-            print("[DEBUG] fetch_member: Forbidden")
-        except Exception as e:
-            print(f"[DEBUG] fetch_member ошибка: {e}")
-
-        # Если не удалось через гильдию, пробуем глобальный fetch_user
-        try:
-            creator = await client.fetch_user(creator_id)
-            if creator:
-                print(f"[DEBUG] Найден через fetch_user: {creator}")
-                return creator, None
-        except discord.NotFound:
-            return None, f"Пользователь с ID {creator_id} не найден в Discord."
-        except Exception as e:
-            return None, f"Ошибка при fetch_user: {e}"
-
-        return None, f"Не удалось найти пользователя {creator_id}."
-
     @discord.ui.button(label="📋 Взять на рассмотрение", style=discord.ButtonStyle.primary, custom_id="take_ticket")
     async def take_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=False)
@@ -129,23 +83,6 @@ class TicketActionsView(View):
             print(f"Ошибка переименования: {e}")
             return
 
-        # Получаем создателя (теперь через глобальный fetch_user)
-        creator, error = await self.get_creator(interaction.client, interaction.guild, channel)
-        if creator is None:
-            await interaction.followup.send(
-                f"⚠️ **Создатель заявки не найден.**\n{error}\nУведомление не отправлено.",
-                ephemeral=True
-            )
-        else:
-            try:
-                await creator.send(f"📩 **Ваша заявка** была взята на рассмотрение **{interaction.user.mention}** в канале {channel.mention}.")
-                await interaction.followup.send("✅ Уведомление создателю отправлено в ЛС.", ephemeral=True)
-            except discord.Forbidden:
-                await interaction.followup.send("⚠️ Не удалось отправить уведомление (у создателя закрыты ЛС).", ephemeral=True)
-            except Exception as e:
-                print(f"Ошибка при отправке ЛС: {e}")
-                await interaction.followup.send("❌ Ошибка при отправке уведомления в ЛС.", ephemeral=True)
-
         await interaction.followup.send(
             f"✅ Тикет **{old_name}** взят на рассмотрение **{interaction.user.mention}**!",
             ephemeral=False
@@ -166,28 +103,20 @@ class TicketActionsView(View):
             await interaction.followup.send("❌ Этот тикет сейчас не рассматривается!", ephemeral=True)
             return
 
-        creator, error = await self.get_creator(interaction.client, interaction.guild, channel)
-        if creator is None:
-            await interaction.followup.send(
-                f"⚠️ **Не удалось определить создателя для снятия.**\n{error}",
-                ephemeral=True
-            )
+        # Извлекаем имя создателя из темы (чтобы переименовать обратно)
+        topic = channel.topic
+        if not topic or not topic.startswith("Создатель: "):
+            await interaction.followup.send("❌ Не удалось определить создателя тикета.", ephemeral=True)
             return
 
-        new_name = f"тикет-{creator.name}"
+        creator_id_str = topic.split(": ")[1].strip()
+        new_name = f"тикет-{creator_id_str}"  # используем ID, чтобы не зависеть от имени
         try:
             await channel.edit(name=new_name)
         except Exception as e:
             await interaction.followup.send("❌ Не удалось переименовать канал.", ephemeral=True)
             print(f"Ошибка переименования: {e}")
             return
-
-        try:
-            await creator.send(f"🔄 Рассмотрение вашей заявки было отменено сотрудником {interaction.user.mention}.")
-        except discord.Forbidden:
-            await interaction.followup.send("⚠️ Не удалось отправить уведомление (у создателя закрыты ЛС).", ephemeral=True)
-        except Exception as e:
-            print(f"Не удалось отправить уведомление об отмене: {e}")
 
         await interaction.followup.send(
             f"✅ Ты снялся с рассмотрения тикета **{current_name}**.",
@@ -236,15 +165,6 @@ class LinkButtonView(View):
 class MyClient(discord.Client):
     async def on_ready(self):
         print(f'✅ Бот {self.user} запущен!')
-        print(f"Интенты: {self.intents}")
-
-        for guild in self.guilds:
-            print(f"Гильдия: {guild.name} (ID: {guild.id}), участников: {guild.member_count}")
-            try:
-                await guild.chunk()
-                print(f"Загружено участников: {len(guild.members)}")
-            except Exception as e:
-                print(f"Ошибка chunk для {guild.name}: {e}")
 
         channel = self.get_channel(APPLY_CHANNEL_ID)
         if channel:
@@ -311,6 +231,7 @@ class MyClient(discord.Client):
                 category=category
             )
 
+            # Сохраняем ID создателя в теме (для переименования при снятии)
             await new_channel.edit(topic=f"Создатель: {message.author.id}")
 
             mention = user.mention if user else discord_username or 'Не указан'
