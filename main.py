@@ -44,11 +44,6 @@ MENTION_ROLES = [
     1514615286551019610,
 ]
 
-# Роль, которая по умолчанию есть у обычного заявителя (может только подавать тикет).
-# Ей явно запрещаем видеть/создавать треды на канале тикета — доп. защита,
-# чтобы приватная панель с кнопками была гарантированно скрыта.
-APPLICANT_ROLE_ID = 1514599908424945745
-
 # Ссылка-приглашение, которая отправляется при вызове на обзвон
 VOICE_INVITE_LINK = "https://discord.gg/beSwNvqMU4"
 
@@ -482,61 +477,12 @@ class MyClient(discord.Client):
                 allowed_mentions=discord.AllowedMentions(roles=True, users=True)
             )
             await new_channel.send(content)
-
-            # Панель с кнопками управления кладём в ПРИВАТНЫЙ тред, чтобы заявитель
-            # их вообще не видел. Добавляем в тред КАЖДОГО участника с разрешённой
-            # ролью напрямую (add_user) — это работает гарантированно, в отличие
-            # от одной лишь ставки на право manage_threads.
-            try:
-                panel_thread = await new_channel.create_thread(
-                    name="🔒 Панель управления",
-                    type=discord.ChannelType.private_thread,
-                    invitable=False,
-                    reason="Приватная панель кнопок управления тикетом"
-                )
-                await panel_thread.send("🔽 **Действия с тикетом:**", view=view)
-
-                added_ids = set()
-                for role_id in ALLOWED_ROLES:
-                    role = guild.get_role(role_id)
-                    if not role:
-                        print(f"⚠️ Роль {role_id} из ALLOWED_ROLES не найдена на сервере.")
-                        continue
-                    for member in role.members:
-                        if member.id in added_ids or member.bot:
-                            continue
-                        try:
-                            await panel_thread.add_user(member)
-                            added_ids.add(member.id)
-                        except Exception as e:
-                            print(f"⚠️ Не удалось добавить {member} в тред панели: {e}")
-
-                if not added_ids:
-                    print("⚠️ В тред панели никого не добавили — проверь ALLOWED_ROLES.")
-            except Exception as e:
-                # Если тред создать не вышло (например, бот без нужных прав) —
-                # не ломаем тикет, а кладём кнопки прямо в канал, как раньше
-                print(f"⚠️ Не удалось создать приватный тред для панели кнопок: {e}")
-                await new_channel.send("🔽 **Действия с тикетом:**", view=view)
+            await new_channel.send("🔽 **Действия с тикетом:**", view=view)
 
             await new_channel.set_permissions(guild.default_role, read_messages=False)
 
             if user:
                 await new_channel.set_permissions(user, read_messages=True, send_messages=True)
-
-            # Явно запрещаем роли заявителя видеть/создавать треды на этом канале —
-            # доп. страховка, чтобы панель с кнопками была гарантированно скрыта
-            applicant_role = guild.get_role(APPLICANT_ROLE_ID)
-            if applicant_role:
-                try:
-                    await new_channel.set_permissions(
-                        applicant_role,
-                        manage_threads=False,
-                        create_private_threads=False,
-                        create_public_threads=False
-                    )
-                except Exception as e:
-                    print(f"⚠️ Не удалось выставить запрет для роли заявителя: {e}")
 
             for role_id in ALLOWED_ROLES:
                 role = guild.get_role(role_id)
