@@ -444,9 +444,7 @@ class MyClient(discord.Client):
                 for role_id in ALLOWED_ROLES:
                     role = guild.get_role(role_id)
                     if role:
-                        # manage_threads нужен, чтобы персонал автоматически видел приватный
-                        # тред с кнопками управления тикетом, а заявитель — нет
-                        await category.set_permissions(role, read_messages=True, connect=True, manage_threads=True)
+                        await category.set_permissions(role, read_messages=True, connect=True)
 
             new_channel = await guild.create_text_channel(
                 f'тикет-{message.author.name}',
@@ -479,23 +477,7 @@ class MyClient(discord.Client):
                 allowed_mentions=discord.AllowedMentions(roles=True, users=True)
             )
             await new_channel.send(content)
-
-            # Панель с кнопками управления кладём в ПРИВАТНЫЙ тред,
-            # чтобы заявитель их вообще не видел — видно только персоналу
-            # (у ролей из ALLOWED_ROLES есть manage_threads, поэтому тред виден им автоматически)
-            try:
-                panel_thread = await new_channel.create_thread(
-                    name="🔒 Панель управления",
-                    type=discord.ChannelType.private_thread,
-                    invitable=False,
-                    reason="Приватная панель кнопок управления тикетом"
-                )
-                await panel_thread.send("🔽 **Действия с тикетом:**", view=view)
-            except Exception as e:
-                # Если по какой-то причине приватный тред создать не вышло (например, не хватает прав) —
-                # не ломаем создание тикета, а кладём кнопки прямо в канал, как раньше
-                print(f"⚠️ Не удалось создать приватный тред для панели кнопок: {e}")
-                await new_channel.send("🔽 **Действия с тикетом:**", view=view)
+            await new_channel.send("🔽 **Действия с тикетом:**", view=view)
 
             await new_channel.set_permissions(guild.default_role, read_messages=False)
 
@@ -505,12 +487,17 @@ class MyClient(discord.Client):
             for role_id in ALLOWED_ROLES:
                 role = guild.get_role(role_id)
                 if role:
-                    # manage_threads даёт возможность видеть приватный тред с кнопками
-                    await new_channel.set_permissions(role, read_messages=True, send_messages=True, manage_threads=True)
+                    try:
+                        await new_channel.set_permissions(role, read_messages=True, send_messages=True)
+                    except Exception as e:
+                        print(f"⚠️ Не удалось выставить права для роли {role_id}: {e}")
 
             admin_role = discord.utils.get(guild.roles, name='Admin')
             if admin_role:
-                await new_channel.set_permissions(admin_role, read_messages=True, send_messages=True, manage_threads=True)
+                try:
+                    await new_channel.set_permissions(admin_role, read_messages=True, send_messages=True)
+                except Exception as e:
+                    print(f"⚠️ Не удалось выставить права для роли Admin: {e}")
 
 
 client = MyClient(intents=discord.Intents.all())
