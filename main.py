@@ -368,8 +368,15 @@ class MyClient(discord.Client):
                 category=category
             )
 
-            # Сохраняем ID создателя в теме (для переименования при снятии и для DM)
-            await new_channel.edit(topic=f"Создатель: {message.author.id}")
+            # Сохраняем ID РЕАЛЬНОГО заявителя (найденного по нику в тексте заявки),
+            # а НЕ message.author.id — потому что заявки чаще всего публикует вебхук/бот-интеграция
+            # с сайта, а не сам заявитель, и у вебхука нет настоящего Discord-аккаунта для DM.
+            if user:
+                await new_channel.edit(topic=f"Создатель: {user.id}")
+            else:
+                await new_channel.edit(topic="Создатель: не найден")
+                print(f"⚠️ Не удалось сопоставить заявителя с участником сервера. "
+                      f"Искали по: '{discord_username}'. Автор сообщения в канале: {message.author} ({message.author.id})")
 
             mention = user.mention if user else discord_username or 'Не указан'
 
