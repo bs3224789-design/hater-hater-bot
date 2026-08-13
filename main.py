@@ -43,6 +43,9 @@ MENTION_ROLES = [
     1514615286551019610,
 ]
 
+# Ссылка-приглашение, которая отправляется при вызове на обзвон
+VOICE_INVITE_LINK = "https://discord.gg/beSwNvqMU4"
+
 processed_messages = set()
 
 
@@ -62,6 +65,18 @@ def has_allowed_role(interaction: discord.Interaction) -> bool:
         interaction.guild.get_role(role_id) in interaction.user.roles
         for role_id in ALLOWED_ROLES
     )
+
+
+def get_ticket_channel(interaction: discord.Interaction) -> discord.TextChannel:
+    """
+    Кнопки теперь живут в приватном треде внутри тикет-канала (чтобы заявитель их не видел).
+    Эта функция возвращает НАСТОЯЩИЙ тикет-канал (родителя треда), а не сам тред,
+    чтобы переименование/удаление/чтение темы работало с самим тикетом.
+    """
+    ch = interaction.channel
+    if isinstance(ch, discord.Thread):
+        return ch.parent
+    return ch
 
 
 async def resolve_user(client: discord.Client, guild: discord.Guild, user_id: int):
@@ -163,21 +178,83 @@ class TicketActionsView(View):
             await interaction.response.send_message("❌ У тебя нет прав закрывать тикеты!", ephemeral=True)
             return
 
-        channel = interaction.channel
-        creator_id = get_creator_id_from_topic(channel)
-        modal = CloseReasonModal(channel=channel, creator_id=creator_id)
+        ticket_channel = get_ticket_channel(interaction)
+        creator_id = get_creator_id_from_topic(ticket_channel)
+        modal = CloseReasonModal(channel=ticket_channel, creator_id=creator_id)
         await interaction.response.send_modal(modal)
+
+    @discord.ui.button(label="✅ Рассмотрено", style=discord.ButtonStyle.success, custom_id="mark_reviewed")
+    async def mark_reviewed(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(ephemeral=True)
+
+        if not has_allowed_role(interaction):
+            await interaction.followup.send("❌ У тебя нет прав отмечать тикеты рассмотренными!", ephemeral=True)
+            return
+
+        ticket_channel = get_ticket_channel(interaction)
+        try:
+            await interaction.followup.send("✅ Тикет отмечен как рассмотренный и будет удалён.", ephemeral=True)
+            await ticket_channel.delete()
+        except discord.NotFound:
+            await interaction.followup.send("❌ Тикет уже удалён.", ephemeral=True)
+        except Exception as e:
+            await interaction.followup.send("❌ Ошибка при удалении тикета.", ephemeral=True)
+            print(f"Ошибка mark_reviewed: {e}")
+
+    @discord.ui.button(label="📞 Вызвать на обзвон", style=discord.ButtonStyle.primary, custom_id="call_to_voice")
+    async def call_to_voice(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(ephemeral=True)
+
+        if not has_allowed_role(interaction):
+            await interaction.followup.send("❌ У тебя нет прав вызывать на обзвон!", ephemeral=True)
+            return
+
+        ticket_channel = get_ticket_channel(interaction)
+        creator_id = get_creator_id_from_topic(ticket_channel)
+
+        if not creator_id:
+            await interaction.followup.send("⚠️ Не найден ID заявителя в теме канала — некому звонить.", ephemeral=True)
+            return
+
+        target_user = await resolve_user(interaction.client, interaction.guild, creator_id)
+        if not target_user:
+            await interaction.followup.send(f"⚠️ Пользователь <@{creator_id}> не найден на сервере.", ephemeral=True)
+            return
+
+        embed = discord.Embed(
+            title="📞 Вас вызвали на обзвон!",
+            description=f"Пожалуйста, подключайтесь по ссылке ниже:\n{VOICE_INVITE_LINK}",
+            color=0x57F287
+        )
+        embed.set_footer(text="Семья Хейтер | GTA 5 RP")
+
+        try:
+            await target_user.send(
+                content=target_user.mention,
+                embed=embed,
+                allowed_mentions=discord.AllowedMentions(users=True)
+            )
+            await interaction.followup.send(f"✅ Уведомление о звонке отправлено {target_user.mention}!", ephemeral=True)
+            await ticket_channel.send(f"📞 {interaction.user.mention} вызвал {target_user.mention} на обзвон.")
+        except discord.Forbidden:
+            await interaction.followup.send(
+                f"⚠️ Не удалось отправить ЛС {target_user.mention}: у него закрыты личные сообщения от участников сервера.",
+                ephemeral=True
+            )
+        except Exception as e:
+            await interaction.followup.send(f"⚠️ Ошибка при отправке уведомления: {e}", ephemeral=True)
+            print(f"Ошибка call_to_voice: {e}")
 
     @discord.ui.button(label="📋 Взять на рассмотрение", style=discord.ButtonStyle.primary, custom_id="take_ticket")
     async def take_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.defer(ephemeral=False)
+        await interaction.response.defer(ephemeral=True)
 
         if not has_allowed_role(interaction):
             await interaction.followup.send("❌ У тебя нет прав брать тикеты на рассмотрение!", ephemeral=True)
             return
 
-        channel = interaction.channel
-        old_name = channel.name
+        ticket_channel = get_ticket_channel(interaction)
+        old_name = ticket_channel.name
 
         if old_name.startswith("рассматривает-"):
             await interaction.followup.send("❌ Этот тикет уже рассматривается!", ephemeral=True)
@@ -185,7 +262,7 @@ class TicketActionsView(View):
 
         new_name = f"рассматривает-{interaction.user.name}"
         try:
-            await channel.edit(name=new_name)
+            await ticket_channel.edit(name=new_name)
         except discord.NotFound:
             await interaction.followup.send("❌ Канал уже не существует.", ephemeral=True)
             return
@@ -196,11 +273,15 @@ class TicketActionsView(View):
 
         await interaction.followup.send(
             f"✅ Тикет **{old_name}** взят на рассмотрение **{interaction.user.mention}**!",
-            ephemeral=False
+            ephemeral=True
+        )
+        # Публичное подтверждение в самом тикете, видимое заявителю
+        await ticket_channel.send(
+            f"📋 Тикет взят на рассмотрение модератором **{interaction.user.name}**."
         )
 
         # Уведомляем автора заявки в ЛС
-        creator_id = get_creator_id_from_topic(channel)
+        creator_id = get_creator_id_from_topic(ticket_channel)
         embed = discord.Embed(
             title="📋 Ваша заявка взята на рассмотрение",
             description=f"Модератор **{interaction.user.name}** начал рассматривать вашу заявку.",
@@ -209,7 +290,7 @@ class TicketActionsView(View):
         embed.set_footer(text="Семья Хейтер | GTA 5 RP")
 
         async def report(text):
-            await channel.send(text)
+            await ticket_channel.send(text)
 
         await send_dm_with_feedback(
             interaction.client, interaction.guild,
@@ -218,27 +299,27 @@ class TicketActionsView(View):
 
     @discord.ui.button(label="🔄 Сняться с рассмотрения", style=discord.ButtonStyle.secondary, custom_id="untake_ticket")
     async def untake_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.defer(ephemeral=False)
+        await interaction.response.defer(ephemeral=True)
 
         if not has_allowed_role(interaction):
             await interaction.followup.send("❌ У тебя нет прав сниматься с рассмотрения!", ephemeral=True)
             return
 
-        channel = interaction.channel
-        current_name = channel.name
+        ticket_channel = get_ticket_channel(interaction)
+        current_name = ticket_channel.name
 
         if not current_name.startswith("рассматривает-"):
             await interaction.followup.send("❌ Этот тикет сейчас не рассматривается!", ephemeral=True)
             return
 
-        creator_id = get_creator_id_from_topic(channel)
+        creator_id = get_creator_id_from_topic(ticket_channel)
         if not creator_id:
             await interaction.followup.send("❌ Не удалось определить создателя тикета.", ephemeral=True)
             return
 
         new_name = f"тикет-{creator_id}"
         try:
-            await channel.edit(name=new_name)
+            await ticket_channel.edit(name=new_name)
         except discord.NotFound:
             await interaction.followup.send("❌ Канал уже не существует.", ephemeral=True)
             return
@@ -249,8 +330,9 @@ class TicketActionsView(View):
 
         await interaction.followup.send(
             f"✅ Ты снялся с рассмотрения тикета **{current_name}**.",
-            ephemeral=False
+            ephemeral=True
         )
+        await ticket_channel.send(f"🔄 **{interaction.user.name}** снялся с рассмотрения тикета.")
 
 
 class LinkButtonView(View):
@@ -361,7 +443,9 @@ class MyClient(discord.Client):
                 for role_id in ALLOWED_ROLES:
                     role = guild.get_role(role_id)
                     if role:
-                        await category.set_permissions(role, read_messages=True, connect=True)
+                        # manage_threads нужен, чтобы персонал автоматически видел приватный
+                        # тред с кнопками управления тикетом, а заявитель — нет
+                        await category.set_permissions(role, read_messages=True, connect=True, manage_threads=True)
 
             new_channel = await guild.create_text_channel(
                 f'тикет-{message.author.name}',
@@ -394,7 +478,23 @@ class MyClient(discord.Client):
                 allowed_mentions=discord.AllowedMentions(roles=True, users=True)
             )
             await new_channel.send(content)
-            await new_channel.send("🔽 **Действия с тикетом:**", view=view)
+
+            # Панель с кнопками управления кладём в ПРИВАТНЫЙ тред,
+            # чтобы заявитель их вообще не видел — видно только персоналу
+            # (у ролей из ALLOWED_ROLES есть manage_threads, поэтому тред виден им автоматически)
+            try:
+                panel_thread = await new_channel.create_thread(
+                    name="🔒 Панель управления",
+                    type=discord.ChannelType.private_thread,
+                    invitable=False,
+                    reason="Приватная панель кнопок управления тикетом"
+                )
+                await panel_thread.send("🔽 **Действия с тикетом:**", view=view)
+            except Exception as e:
+                # Если по какой-то причине приватный тред создать не вышло (например, не хватает прав) —
+                # не ломаем создание тикета, а кладём кнопки прямо в канал, как раньше
+                print(f"⚠️ Не удалось создать приватный тред для панели кнопок: {e}")
+                await new_channel.send("🔽 **Действия с тикетом:**", view=view)
 
             await new_channel.set_permissions(guild.default_role, read_messages=False)
 
@@ -404,11 +504,12 @@ class MyClient(discord.Client):
             for role_id in ALLOWED_ROLES:
                 role = guild.get_role(role_id)
                 if role:
-                    await new_channel.set_permissions(role, read_messages=True, send_messages=True)
+                    # manage_threads даёт возможность видеть приватный тред с кнопками
+                    await new_channel.set_permissions(role, read_messages=True, send_messages=True, manage_threads=True)
 
             admin_role = discord.utils.get(guild.roles, name='Admin')
             if admin_role:
-                await new_channel.set_permissions(admin_role, read_messages=True, send_messages=True)
+                await new_channel.set_permissions(admin_role, read_messages=True, send_messages=True, manage_threads=True)
 
 
 client = MyClient(intents=discord.Intents.all())
