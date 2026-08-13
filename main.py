@@ -64,6 +64,52 @@ def has_allowed_role(interaction: discord.Interaction) -> bool:
     )
 
 
+async def resolve_user(client: discord.Client, guild: discord.Guild, user_id: int):
+    """Пытается найти пользователя всеми доступными способами: кэш -> fetch_member -> fetch_user."""
+    member = guild.get_member(user_id)
+    if member:
+        return member
+    try:
+        member = await guild.fetch_member(user_id)
+        return member
+    except (discord.NotFound, discord.HTTPException):
+        pass
+    try:
+        user = await client.fetch_user(user_id)
+        return user
+    except (discord.NotFound, discord.HTTPException):
+        return None
+
+
+async def send_dm_with_feedback(client: discord.Client, guild: discord.Guild,
+                                 user_id: int | None, embed: discord.Embed, context_label: str,
+                                 report):
+    """
+    Отправляет DM пользователю и, если не получилось, зовёт report(text) с причиной —
+    чтобы было видно, что пошло не так, без залезания в логи Railway.
+    report может быть channel.send или interaction.followup.send (ephemeral).
+    """
+    if not user_id:
+        await report(f"⚠️ Не удалось отправить уведомление ({context_label}): не найден ID создателя в теме канала.")
+        return
+
+    user = await resolve_user(client, guild, user_id)
+    if not user:
+        await report(f"⚠️ Не удалось отправить уведомление ({context_label}): пользователь <@{user_id}> не найден на сервере.")
+        return
+
+    try:
+        await user.send(embed=embed)
+    except discord.Forbidden:
+        await report(
+            f"⚠️ Не удалось отправить ЛС пользователю {user.mention} ({context_label}): "
+            f"у него закрыты личные сообщения от участников сервера."
+        )
+    except Exception as e:
+        await report(f"⚠️ Не удалось отправить уведомление ({context_label}): ошибка {e}")
+        print(f"Ошибка DM ({context_label}): {e}")
+
+
 class CloseReasonModal(Modal, title="Закрытие тикета"):
     reason = TextInput(
         label="Причина закрытия",
@@ -82,23 +128,20 @@ class CloseReasonModal(Modal, title="Закрытие тикета"):
         await interaction.response.defer(ephemeral=True)
 
         # Пытаемся отправить автору заявки уведомление о закрытии
-        if self.creator_id:
-            try:
-                user = interaction.guild.get_member(self.creator_id)
-                if user is None:
-                    user = await interaction.client.fetch_user(self.creator_id)
-                if user:
-                    embed = discord.Embed(
-                        title="🔒 Ваша заявка была закрыта",
-                        description=f"**Причина:** {self.reason.value}",
-                        color=0xE74C3C
-                    )
-                    embed.set_footer(text="Семья Хейтер | GTA 5 RP")
-                    await user.send(embed=embed)
-            except discord.Forbidden:
-                print("⚠️ Не удалось отправить DM автору заявки (закрыты ЛС).")
-            except Exception as e:
-                print(f"⚠️ Ошибка отправки DM при закрытии: {e}")
+        embed = discord.Embed(
+            title="🔒 Ваша заявка была закрыта",
+            description=f"**Причина:** {self.reason.value}",
+            color=0xE74C3C
+        )
+        embed.set_footer(text="Семья Хейтер | GTA 5 RP")
+
+        async def report(text):
+            await interaction.followup.send(text, ephemeral=True)
+
+        await send_dm_with_feedback(
+            interaction.client, interaction.guild,
+            self.creator_id, embed, "закрытие тикета", report
+        )
 
         try:
             await interaction.followup.send("✅ Тикет успешно закрыт!", ephemeral=True)
@@ -158,23 +201,20 @@ class TicketActionsView(View):
 
         # Уведомляем автора заявки в ЛС
         creator_id = get_creator_id_from_topic(channel)
-        if creator_id:
-            try:
-                user = interaction.guild.get_member(creator_id)
-                if user is None:
-                    user = await interaction.client.fetch_user(creator_id)
-                if user:
-                    embed = discord.Embed(
-                        title="📋 Ваша заявка взята на рассмотрение",
-                        description=f"Модератор **{interaction.user.name}** начал рассматривать вашу заявку.",
-                        color=0x5865F2
-                    )
-                    embed.set_footer(text="Семья Хейтер | GTA 5 RP")
-                    await user.send(embed=embed)
-            except discord.Forbidden:
-                print("⚠️ Не удалось отправить DM автору заявки (закрыты ЛС).")
-            except Exception as e:
-                print(f"⚠️ Ошибка отправки DM при взятии на рассмотрение: {e}")
+        embed = discord.Embed(
+            title="📋 Ваша заявка взята на рассмотрение",
+            description=f"Модератор **{interaction.user.name}** начал рассматривать вашу заявку.",
+            color=0x5865F2
+        )
+        embed.set_footer(text="Семья Хейтер | GTA 5 RP")
+
+        async def report(text):
+            await channel.send(text)
+
+        await send_dm_with_feedback(
+            interaction.client, interaction.guild,
+            creator_id, embed, "взятие на рассмотрение", report
+        )
 
     @discord.ui.button(label="🔄 Сняться с рассмотрения", style=discord.ButtonStyle.secondary, custom_id="untake_ticket")
     async def untake_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
