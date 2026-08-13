@@ -3,7 +3,7 @@ import os
 import re
 from flask import Flask
 from threading import Thread
-from discord.ui import Button, View
+from discord.ui import Button, View, Modal, TextInput
 
 app = Flask('')
 
@@ -36,7 +36,79 @@ ALLOWED_ROLES = [
     1514615286551019610,
 ]
 
+# Роли, которые бот будет автоматически тегать при создании нового тикета
+MENTION_ROLES = [
+    1514710792677884125,
+    1514613884189802597,
+    1514615286551019610,
+]
+
 processed_messages = set()
+
+
+def get_creator_id_from_topic(channel: discord.TextChannel):
+    """Достаём ID создателя тикета из темы канала."""
+    topic = channel.topic
+    if not topic or not topic.startswith("Создатель: "):
+        return None
+    try:
+        return int(topic.split(": ")[1].strip())
+    except (IndexError, ValueError):
+        return None
+
+
+def has_allowed_role(interaction: discord.Interaction) -> bool:
+    return any(
+        interaction.guild.get_role(role_id) in interaction.user.roles
+        for role_id in ALLOWED_ROLES
+    )
+
+
+class CloseReasonModal(Modal, title="Закрытие тикета"):
+    reason = TextInput(
+        label="Причина закрытия",
+        style=discord.TextStyle.paragraph,
+        placeholder="Опиши причину закрытия тикета...",
+        max_length=500,
+        required=True,
+    )
+
+    def __init__(self, channel: discord.TextChannel, creator_id: int | None):
+        super().__init__()
+        self.channel = channel
+        self.creator_id = creator_id
+
+    async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+
+        # Пытаемся отправить автору заявки уведомление о закрытии
+        if self.creator_id:
+            try:
+                user = interaction.guild.get_member(self.creator_id)
+                if user is None:
+                    user = await interaction.client.fetch_user(self.creator_id)
+                if user:
+                    embed = discord.Embed(
+                        title="🔒 Ваша заявка была закрыта",
+                        description=f"**Причина:** {self.reason.value}",
+                        color=0xE74C3C
+                    )
+                    embed.set_footer(text="Семья Хейтер | GTA 5 RP")
+                    await user.send(embed=embed)
+            except discord.Forbidden:
+                print("⚠️ Не удалось отправить DM автору заявки (закрыты ЛС).")
+            except Exception as e:
+                print(f"⚠️ Ошибка отправки DM при закрытии: {e}")
+
+        try:
+            await interaction.followup.send("✅ Тикет успешно закрыт!", ephemeral=True)
+            await self.channel.delete()
+        except discord.NotFound:
+            await interaction.followup.send("❌ Тикет уже закрыт.", ephemeral=True)
+        except Exception as e:
+            await interaction.followup.send("❌ Ошибка при закрытии тикета.", ephemeral=True)
+            print(f"Ошибка close_ticket (modal): {e}")
+
 
 class TicketActionsView(View):
     def __init__(self):
@@ -44,27 +116,20 @@ class TicketActionsView(View):
 
     @discord.ui.button(label="🔒 Закрыть тикет", style=discord.ButtonStyle.danger, custom_id="close_ticket")
     async def close_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.defer(ephemeral=True)
-
-        if not any(interaction.guild.get_role(role_id) in interaction.user.roles for role_id in ALLOWED_ROLES):
-            await interaction.followup.send("❌ У тебя нет прав закрывать тикеты!", ephemeral=True)
+        if not has_allowed_role(interaction):
+            await interaction.response.send_message("❌ У тебя нет прав закрывать тикеты!", ephemeral=True)
             return
 
         channel = interaction.channel
-        try:
-            await interaction.followup.send("✅ Тикет успешно закрыт!", ephemeral=True)
-            await channel.delete()
-        except discord.NotFound:
-            await interaction.followup.send("❌ Тикет уже закрыт.", ephemeral=True)
-        except Exception as e:
-            await interaction.followup.send("❌ Ошибка при закрытии тикета.", ephemeral=True)
-            print(f"Ошибка close_ticket: {e}")
+        creator_id = get_creator_id_from_topic(channel)
+        modal = CloseReasonModal(channel=channel, creator_id=creator_id)
+        await interaction.response.send_modal(modal)
 
     @discord.ui.button(label="📋 Взять на рассмотрение", style=discord.ButtonStyle.primary, custom_id="take_ticket")
     async def take_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=False)
 
-        if not any(interaction.guild.get_role(role_id) in interaction.user.roles for role_id in ALLOWED_ROLES):
+        if not has_allowed_role(interaction):
             await interaction.followup.send("❌ У тебя нет прав брать тикеты на рассмотрение!", ephemeral=True)
             return
 
@@ -78,6 +143,9 @@ class TicketActionsView(View):
         new_name = f"рассматривает-{interaction.user.name}"
         try:
             await channel.edit(name=new_name)
+        except discord.NotFound:
+            await interaction.followup.send("❌ Канал уже не существует.", ephemeral=True)
+            return
         except Exception as e:
             await interaction.followup.send("❌ Не удалось переименовать канал.", ephemeral=True)
             print(f"Ошибка переименования: {e}")
@@ -88,11 +156,31 @@ class TicketActionsView(View):
             ephemeral=False
         )
 
+        # Уведомляем автора заявки в ЛС
+        creator_id = get_creator_id_from_topic(channel)
+        if creator_id:
+            try:
+                user = interaction.guild.get_member(creator_id)
+                if user is None:
+                    user = await interaction.client.fetch_user(creator_id)
+                if user:
+                    embed = discord.Embed(
+                        title="📋 Ваша заявка взята на рассмотрение",
+                        description=f"Модератор **{interaction.user.name}** начал рассматривать вашу заявку.",
+                        color=0x5865F2
+                    )
+                    embed.set_footer(text="Семья Хейтер | GTA 5 RP")
+                    await user.send(embed=embed)
+            except discord.Forbidden:
+                print("⚠️ Не удалось отправить DM автору заявки (закрыты ЛС).")
+            except Exception as e:
+                print(f"⚠️ Ошибка отправки DM при взятии на рассмотрение: {e}")
+
     @discord.ui.button(label="🔄 Сняться с рассмотрения", style=discord.ButtonStyle.secondary, custom_id="untake_ticket")
     async def untake_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=False)
 
-        if not any(interaction.guild.get_role(role_id) in interaction.user.roles for role_id in ALLOWED_ROLES):
+        if not has_allowed_role(interaction):
             await interaction.followup.send("❌ У тебя нет прав сниматься с рассмотрения!", ephemeral=True)
             return
 
@@ -103,16 +191,17 @@ class TicketActionsView(View):
             await interaction.followup.send("❌ Этот тикет сейчас не рассматривается!", ephemeral=True)
             return
 
-        # Извлекаем имя создателя из темы (чтобы переименовать обратно)
-        topic = channel.topic
-        if not topic or not topic.startswith("Создатель: "):
+        creator_id = get_creator_id_from_topic(channel)
+        if not creator_id:
             await interaction.followup.send("❌ Не удалось определить создателя тикета.", ephemeral=True)
             return
 
-        creator_id_str = topic.split(": ")[1].strip()
-        new_name = f"тикет-{creator_id_str}"  # используем ID, чтобы не зависеть от имени
+        new_name = f"тикет-{creator_id}"
         try:
             await channel.edit(name=new_name)
+        except discord.NotFound:
+            await interaction.followup.send("❌ Канал уже не существует.", ephemeral=True)
+            return
         except Exception as e:
             await interaction.followup.send("❌ Не удалось переименовать канал.", ephemeral=True)
             print(f"Ошибка переименования: {e}")
@@ -122,6 +211,7 @@ class TicketActionsView(View):
             f"✅ Ты снялся с рассмотрения тикета **{current_name}**.",
             ephemeral=False
         )
+
 
 class LinkButtonView(View):
     def __init__(self):
@@ -162,8 +252,15 @@ class LinkButtonView(View):
             await interaction.followup.send("❌ Произошла ошибка. Попробуй позже.", ephemeral=True)
             print(f'❌ Ошибка: {e}')
 
+
 class MyClient(discord.Client):
     async def on_ready(self):
+        # Важно: регистрируем persistent-views заново при каждом старте бота,
+        # иначе кнопки в СТАРЫХ тикетах перестают отвечать после рестарта бота
+        # (это и была основная причина ошибок на кнопках).
+        self.add_view(TicketActionsView())
+        self.add_view(LinkButtonView())
+
         print(f'✅ Бот {self.user} запущен!')
 
         channel = self.get_channel(APPLY_CHANNEL_ID)
@@ -231,13 +328,24 @@ class MyClient(discord.Client):
                 category=category
             )
 
-            # Сохраняем ID создателя в теме (для переименования при снятии)
+            # Сохраняем ID создателя в теме (для переименования при снятии и для DM)
             await new_channel.edit(topic=f"Создатель: {message.author.id}")
 
             mention = user.mention if user else discord_username or 'Не указан'
 
+            # Собираем упоминания ролей, которые нужно затегать при создании тикета
+            role_mentions = []
+            for role_id in MENTION_ROLES:
+                role = guild.get_role(role_id)
+                if role:
+                    role_mentions.append(role.mention)
+            roles_text = " ".join(role_mentions)
+
             view = TicketActionsView()
-            await new_channel.send(f'📩 **Новая заявка от {mention}!**')
+            await new_channel.send(
+                f'📩 **Новая заявка от {mention}!**\n{roles_text}',
+                allowed_mentions=discord.AllowedMentions(roles=True, users=True)
+            )
             await new_channel.send(content)
             await new_channel.send("🔽 **Действия с тикетом:**", view=view)
 
@@ -254,6 +362,7 @@ class MyClient(discord.Client):
             admin_role = discord.utils.get(guild.roles, name='Admin')
             if admin_role:
                 await new_channel.set_permissions(admin_role, read_messages=True, send_messages=True)
+
 
 client = MyClient(intents=discord.Intents.all())
 client.run(TOKEN)
