@@ -1,6 +1,10 @@
 import discord
 import os
 import re
+import hmac
+import hashlib
+import time
+from urllib.parse import quote
 from flask import Flask
 from threading import Thread
 from discord.ui import Button, View, Modal, TextInput
@@ -22,6 +26,23 @@ TOKEN = os.environ.get('TOKEN')
 if not TOKEN:
     print("❌ Токен не найден! Добавь переменную TOKEN на Railway.")
     exit(1)
+
+# ===== ПОДПИСЬ ССЫЛОК НА ЗАЯВКУ =====
+# Этот секрет ОБЯЗАТЕЛЬНО должен совпадать с переменной LINK_SECRET на Vercel
+# (в настройках проекта сайта). Никому не показывай его значение.
+LINK_SECRET = os.environ.get('LINK_SECRET')
+if not LINK_SECRET:
+    print("❌ LINK_SECRET не найден! Добавь переменную LINK_SECRET на Railway "
+          "(и такую же — с тем же значением — на Vercel).")
+    exit(1)
+
+LINK_TTL_SECONDS = 24 * 60 * 60  # ссылка действительна 24 часа, потом нужно сгенерировать новую
+
+
+def sign_link_payload(user_tag: str, expires: int) -> str:
+    """HMAC-подпись, доказывающая что ссылку выдал именно бот именно этому пользователю."""
+    payload = f"{user_tag}.{expires}".encode()
+    return hmac.new(LINK_SECRET.encode(), payload, hashlib.sha256).hexdigest()
 
 CHANNEL_NAME = 'заявки-бот'
 CATEGORY_NAME = 'ticket'
@@ -352,14 +373,21 @@ class LinkButtonView(View):
         user_discriminator = interaction.user.discriminator
         user_tag = f"{user_name}#{user_discriminator}" if user_discriminator != '0' else user_name
 
-        link = f"https://hater-website.vercel.app/?user={user_tag}"
+        expires = int(time.time()) + LINK_TTL_SECONDS
+        signature = sign_link_payload(user_tag, expires)
+
+        link = (
+            f"https://hater-website.vercel.app/?user={quote(user_tag)}"
+            f"&exp={expires}&sig={signature}"
+        )
 
         embed = discord.Embed(
             title="🔗 Твоя ссылка для заявки",
             description=(
                 f"Перейди по ссылке, чтобы заполнить заявку:\n\n"
                 f"{link}\n\n"
-                "⚠️ **Важно:** Ссылка привязана к твоему Discord нику. Не передавай её другим."
+                "⚠️ **Важно:** Ссылка привязана к твоему Discord нику и действует 24 часа. "
+                "Если поменять ник в ссылке вручную — заявка не пройдёт проверку. Не передавай её другим."
             ),
             color=0x5865F2
         )
